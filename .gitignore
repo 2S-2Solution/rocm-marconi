@@ -1,0 +1,12 @@
+# pacchetti di installazione e binari: vanno nelle GitHub Releases, non nel git
+rilasci/
+*.dll
+*.lib
+*.exp
+*.exe
+*.7z
+*.zip
+*.kdb
+*.co
+*.hsaco
+__pycache__/

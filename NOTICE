@@ -1,0 +1,9 @@
+rocm-marconi
+Copyright (c) 2026 2 Solution (https://www.2solution.it) - MIT License (LICENSE).
+
+The shim exports functions with the names and signatures of the AMD HIP runtime API.
+HIP is Copyright (c) Advanced Micro Devices, Inc., released under the MIT License
+(https://github.com/ROCm/clr). No AMD source code or binary is included in this
+repository; the shim forwards calls at runtime to the amdhip64.dll installed with the
+AMD driver. Tensile/rocBLAS (MIT, Advanced Micro Devices, Inc.) are referenced by the
+tools in tensile/ and strumenti/ but not included.
