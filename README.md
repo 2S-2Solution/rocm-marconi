@@ -32,7 +32,20 @@ ogni file. MIOpen non fa parte del kit: è nel pacchetto
 
 ### Come funziona lo shim
 
-- **428 funzioni** vengono inoltrate alla runtime 5.7 del driver (`System32\amdhip64.dll`).
+- **428 funzioni** vanno alla runtime 5.7 del driver (`System32\amdhip64.dll`). 418 sono inoltrate
+  così come sono. Le altre **10 vengono tradotte**, perché passano tipi cambiati fra 5.7 e 7.x:
+  - `hipMemoryType` è stato rinumerato;
+  - `HIP_MEMCPY3D` ha campi a 32 bit in 5.7 e a 64 in 7.x;
+  - i parametri dei semafori esterni hanno i campi spostati.
+
+  Senza traduzione un programma compilato con gli header 6.x/7.x leggeva la memoria GPU come «host»
+  e le copie 3D davano successo con i dati sbagliati. Il confronto fra gli header è sistematico (tutte
+  le 50 strutture e i 470 enumeratori comuni): fuori da questi tre casi l'ABI coincide. Dettagli in
+  `runtime/src/abi57.inc` e in [FUNZIONI_473.md](docs/FUNZIONI_473.md).
+- **Difetto della 5.7 aggirato:** `hipDrvPointerGetAttributes(MEMORY_TYPE)` cade su alcuni puntatori host
+  non registrati, per esempio la memoria di un tensore CPU di PyTorch (`is_pinned()` terminava il
+  processo). Lo shim chiede prima a `hipPointerGetAttributes`, che su quei puntatori risponde senza
+  cadere, e per la memoria non HIP restituisce il tipo «non registrato».
 - **10 funzioni** sono implementate dentro lo shim (elenco in
   [FUNZIONI_473.md](docs/FUNZIONI_473.md), stato «OK propria»): `hipGetProcAddress`,
   `hipSetValidDevices`, `hipTexRefGetMipMappedArray`, `hipMemcpyAtoHAsync`,
@@ -171,6 +184,12 @@ Windows — so that modern software expecting HIP 6.x/7.x APIs runs on a **Radeo
 (gfx906)**. The release package installs into a per-user folder, without administrator
 rights, and does not modify the driver or the HIP SDK; only the opt-in developer tools in
 `tensile/` and `strumenti/instrada_shape.py --applica` rewrite the HIP SDK's rocBLAS library.
+
+**ABI translation:** 10 forwarded functions translate the types that changed between 5.7 and 7.x:
+`hipMemoryType` was renumbered, `HIP_MEMCPY3D` went from 32- to 64-bit fields, and the
+external-semaphore parameters moved. A systematic header comparison (50 structs, 470 enumerators)
+shows no other ABI change. The shim also avoids a 5.7 crash in
+`hipDrvPointerGetAttributes(MEMORY_TYPE)` on some unregistered host pointers.
 
 **Contents:** the `amdhip64_7_shim.dll` shim (482 exports: 473 `hip*` APIs, 5 internal
 `__hip*` compiler entry points and 4 diagnostic `marconi_57exp_*` functions; 428/428 runtime

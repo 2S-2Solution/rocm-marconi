@@ -1,7 +1,8 @@
 # Marconi shim v5.1 - stato delle 473 funzioni esportate
 
 Legenda: **OK** = funziona (inoltrata alla runtime v5.7 che la implementa) ·
-**OK propria** = implementata dentro lo shim · **NO** = esportata ma la runtime non ha i mattoni.
+**OK propria** = implementata dentro lo shim · **OK tradotta** = inoltrata alla 5.7 traducendo i
+tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma la runtime non ha i mattoni.
 
 | # | funzione | stato | note |
 |---|---|---|---|
@@ -87,10 +88,10 @@ Legenda: **OK** = funziona (inoltrata alla runtime v5.7 che la implementa) ·
 | 80 | `hipDrvGraphMemcpyNodeGetParams` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D, struct non definita nella 5.7 |
 | 81 | `hipDrvGraphMemcpyNodeSetParams` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D, struct non definita nella 5.7 |
 | 82 | `hipDrvLaunchKernelEx` | **OK propria** | implementazione custom nello shim |
-| 83 | `hipDrvMemcpy2DUnaligned` | OK | inoltrata alla runtime v5.7 |
-| 84 | `hipDrvMemcpy3D` | OK | inoltrata alla runtime v5.7 |
-| 85 | `hipDrvMemcpy3DAsync` | OK | inoltrata alla runtime v5.7 |
-| 86 | `hipDrvPointerGetAttributes` | OK | inoltrata alla runtime v5.7 |
+| 83 | `hipDrvMemcpy2DUnaligned` | **OK tradotta** | tradotta: hipMemoryType 7.x -> 5.7 in hip_Memcpy2D |
+| 84 | `hipDrvMemcpy3D` | **OK tradotta** | tradotta: HIP_MEMCPY3D 7.x (184 B, size_t) ricostruita in quella 5.7 (128 B, unsigned int) |
+| 85 | `hipDrvMemcpy3DAsync` | **OK tradotta** | tradotta: HIP_MEMCPY3D 7.x (184 B, size_t) ricostruita in quella 5.7 (128 B, unsigned int) |
+| 86 | `hipDrvPointerGetAttributes` | **OK tradotta** | tradotta: hipMemoryType 5.7 -> 7.x; per un puntatore non HIP il tipo vale 0 senza chiederlo alla 5.7 (cadeva) |
 | 87 | `hipEventCreate` | OK | inoltrata alla runtime v5.7 |
 | 88 | `hipEventCreateWithFlags` | OK | inoltrata alla runtime v5.7 |
 | 89 | `hipEventDestroy` | OK | inoltrata alla runtime v5.7 |
@@ -344,8 +345,8 @@ Legenda: **OK** = funziona (inoltrata alla runtime v5.7 che la implementa) ·
 | 337 | `hipMemcpyHtoAAsync` | **OK propria** | implementata: delega alla sincrona hipMemcpyHtoA |
 | 338 | `hipMemcpyHtoD` | OK | inoltrata alla runtime v5.7 |
 | 339 | `hipMemcpyHtoDAsync` | OK | inoltrata alla runtime v5.7 |
-| 340 | `hipMemcpyParam2D` | OK | inoltrata alla runtime v5.7 |
-| 341 | `hipMemcpyParam2DAsync` | OK | inoltrata alla runtime v5.7 |
+| 340 | `hipMemcpyParam2D` | **OK tradotta** | tradotta: hipMemoryType 7.x -> 5.7 in hip_Memcpy2D |
+| 341 | `hipMemcpyParam2DAsync` | **OK tradotta** | tradotta: hipMemoryType 7.x -> 5.7 in hip_Memcpy2D |
 | 342 | `hipMemcpyPeer` | OK | inoltrata alla runtime v5.7 |
 | 343 | `hipMemcpyPeerAsync` | OK | inoltrata alla runtime v5.7 |
 | 344 | `hipMemcpyToArray` | OK | inoltrata alla runtime v5.7 |
@@ -395,8 +396,8 @@ Legenda: **OK** = funziona (inoltrata alla runtime v5.7 che la implementa) ·
 | 388 | `hipOccupancyMaxActiveBlocksPerMultiprocessorWithFlags` | OK | inoltrata alla runtime v5.7 |
 | 389 | `hipOccupancyMaxPotentialBlockSize` | OK | inoltrata alla runtime v5.7 |
 | 390 | `hipPeekAtLastError` | OK | inoltrata alla runtime v5.7 |
-| 391 | `hipPointerGetAttribute` | OK | inoltrata alla runtime v5.7 |
-| 392 | `hipPointerGetAttributes` | OK | inoltrata alla runtime v5.7 |
+| 391 | `hipPointerGetAttribute` | **OK tradotta** | tradotta: hipMemoryType 5.7 -> 7.x; tipo di un puntatore non HIP: hipErrorInvalidValue (la 5.7 cadeva) |
+| 392 | `hipPointerGetAttributes` | **OK tradotta** | tradotta: hipMemoryType 5.7 -> 7.x |
 | 393 | `hipProfilerStart` | OK | inoltrata alla runtime v5.7 |
 | 394 | `hipProfilerStop` | OK | inoltrata alla runtime v5.7 |
 | 395 | `hipRegisterTracerCallback` | OK | inoltrata alla runtime v5.7 |
@@ -405,7 +406,7 @@ Legenda: **OK** = funziona (inoltrata alla runtime v5.7 che la implementa) ·
 | 398 | `hipSetDeviceFlags` | OK | inoltrata alla runtime v5.7 |
 | 399 | `hipSetValidDevices` | **OK propria** | implementata: valida l'elenco e attiva il primo device buono |
 | 400 | `hipSetupArgument` | OK | inoltrata alla runtime v5.7 |
-| 401 | `hipSignalExternalSemaphoresAsync` | OK | inoltrata alla runtime v5.7 |
+| 401 | `hipSignalExternalSemaphoresAsync` | **OK tradotta** | tradotta: parametri 7.x (144 B) riportati al layout 5.7 (136 B) |
 | 402 | `hipStreamAddCallback` | OK | inoltrata alla runtime v5.7 |
 | 403 | `hipStreamAddCallback_spt` | OK | inoltrata alla runtime v5.7 |
 | 404 | `hipStreamAttachMemAsync` | OK | inoltrata alla runtime v5.7 |
@@ -477,13 +478,32 @@ Legenda: **OK** = funziona (inoltrata alla runtime v5.7 che la implementa) ·
 | 470 | `hipUserObjectCreate` | OK | inoltrata alla runtime v5.7 |
 | 471 | `hipUserObjectRelease` | OK | inoltrata alla runtime v5.7 |
 | 472 | `hipUserObjectRetain` | OK | inoltrata alla runtime v5.7 |
-| 473 | `hipWaitExternalSemaphoresAsync` | OK | inoltrata alla runtime v5.7 |
+| 473 | `hipWaitExternalSemaphoresAsync` | **OK tradotta** | tradotta: parametri 7.x (144 B) riportati al layout 5.7 (136 B) |
 
 ## Riepilogo
 
-- **OK (inoltrate)**: 428
+- **OK (inoltrate)**: 418
+- **OK tradotte**: 10 (inoltrate traducendo l'ABI, vedi sotto)
 - **OK propria**: 10
 - **NO (esportate, non supportate)**: 35
+
+## Traduzione ABI 5.7 ↔ 7.x (12 nov 2026)
+
+Confrontando con clang gli header di ROCm 5.7 e 7.1 (layout di tutte le 50 strutture comuni e valori
+di tutti i 470 enumeratori comuni), fra le due versioni sono cambiati solo:
+- `hipMemoryType`: rinumerato. 5.7: Host 0, Device 1, Array 2, Unified 3, Managed 4.
+  7.x: Unregistered 0, Host 1, Device 2, Managed 3, Array 10, Unified 11;
+- `HIP_MEMCPY3D`: campi di dimensione da `unsigned int` (128 byte) a `size_t` (184 byte);
+- `hipExternalSemaphoreSignalParams` / `WaitParams`: l'unione `nvSciSync` inserita all'offset 8
+  sposta `keyedMutex` e `flags` di 8 byte.
+
+Gli altri cambiamenti (descrittori di memoria e semafori esterni, `hipMemPoolProps`,
+`hipMemAllocNodeParams`, `hipMemAllocationProp`) aggiungono campi solo dove la 5.7 ha spazio riservato.
+Le 10 funzioni che passano quei tipi ora traducono. Prima un programma compilato con gli header
+6.x/7.x leggeva la memoria GPU come «host», e le copie 3D restituivano successo con i dati sbagliati
+(55 278 byte diversi su 55 500 nella prova). Lo shim aggira anche un difetto della 5.7:
+`hipDrvPointerGetAttributes(MEMORY_TYPE)` cade su alcuni puntatori host non registrati, per esempio
+la memoria di un tensore CPU di PyTorch.
 
 Oltre alle 473 API, lo shim esporta 9 simboli: le 5 funzioni interne del compilatore
 `__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipUnregisterFatBinary`,

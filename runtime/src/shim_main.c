@@ -424,9 +424,9 @@ FWD9(hipMemGetAddressRange)
 FWD9(hipMemGetInfo)
 FWD9(hipHostMalloc)
 FWD9(hipHostGetDevicePointer)
-FWD9(hipDrvMemcpy2DUnaligned)
-FWD9(hipMemcpyParam2D)
-FWD9(hipDrvMemcpy3D)
+/* FWD9(hipDrvMemcpy2DUnaligned): tradotta, vedi abi57.inc */
+/* FWD9(hipMemcpyParam2D): tradotta, vedi abi57.inc */
+/* FWD9(hipDrvMemcpy3D): tradotta, vedi abi57.inc */
 FWD9(hipMemcpyAsync)
 FWD9(hipMemcpyDtoDAsync)
 FWD9(hipMemcpyDtoD)
@@ -446,8 +446,8 @@ FWD9(hipMemsetD8)
 FWD9(hipModuleGetTexRef)
 FWD9(hipModuleOccupancyMaxActiveBlocksPerMultiprocessorWithFlags)
 FWD9(hipModuleOccupancyMaxPotentialBlockSize)
-FWD9(hipPointerGetAttribute)
-FWD9(hipDrvPointerGetAttributes)
+/* FWD9(hipPointerGetAttribute): tradotta, vedi abi57.inc */
+/* FWD9(hipDrvPointerGetAttributes): tradotta, vedi abi57.inc */
 FWD9(hipStreamBeginCapture)
 FWD9(hipStreamCreateWithPriority)
 FWD9(hipStreamDestroy)
@@ -608,7 +608,7 @@ FWD9(hipGraphLaunch_spt)
 FWD9(hipHostRegister)
 FWD9(hipHostUnregister)
 FWD9(hipHostGetFlags)
-FWD9(hipPointerGetAttributes)
+/* FWD9(hipPointerGetAttributes): tradotta, vedi abi57.inc */
 FWD9(hipFuncSetCacheConfig)
 FWD9(hipFuncSetSharedMemConfig)
 FWD9(hipDeviceSetCacheConfig)
@@ -718,6 +718,11 @@ __declspec(dllexport) int hipDrvGraphAddMemcpyNode(void* node, void* graph, void
     return hipErrorNotSupported;
 }
 
+#ifndef hipErrorOutOfMemory
+#define hipErrorOutOfMemory 2
+#endif
+#include "abi57.inc"
+
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     (void)hinst; (void)reserved;
     if (reason == DLL_PROCESS_DETACH && g_amdhip64) {
@@ -759,7 +764,7 @@ FWDP(hipDeviceReset)
 FWDP(hipDeviceSetGraphMemAttribute)
 FWDP(hipDrvGetErrorName)
 FWDP(hipDrvGetErrorString)
-FWDP(hipDrvMemcpy3DAsync)
+/* FWDP(hipDrvMemcpy3DAsync): tradotta, vedi abi57.inc */
 FWDP(hipEventRecord_spt)
 FWDP(hipExtGetLinkTypeAndHopCount)
 FWDP(hipExtLaunchKernel)
@@ -908,7 +913,7 @@ FWDP(hipMemcpyFromSymbol)
 FWDP(hipMemcpyFromSymbolAsync)
 FWDP(hipMemcpyFromSymbolAsync_spt)
 FWDP(hipMemcpyFromSymbol_spt)
-FWDP(hipMemcpyParam2DAsync)
+/* FWDP(hipMemcpyParam2DAsync): tradotta, vedi abi57.inc */
 FWDP(hipMemcpyPeer)
 FWDP(hipMemcpyPeerAsync)
 FWDP(hipMemcpyToArray)
@@ -937,7 +942,7 @@ FWDP(hipProfilerStop)
 FWDP(hipRegisterTracerCallback)
 FWDP(hipSetDeviceFlags)
 FWDP(hipSetupArgument)
-FWDP(hipSignalExternalSemaphoresAsync)
+/* FWDP(hipSignalExternalSemaphoresAsync): tradotta, vedi abi57.inc */
 FWDP(hipStreamAddCallback_spt)
 FWDP(hipStreamAttachMemAsync)
 FWDP(hipStreamBeginCapture_spt)
@@ -983,7 +988,7 @@ FWDP(hipUnbindTexture)
 FWDP(hipUserObjectCreate)
 FWDP(hipUserObjectRelease)
 FWDP(hipUserObjectRetain)
-FWDP(hipWaitExternalSemaphoresAsync)
+/* FWDP(hipWaitExternalSemaphoresAsync): tradotta, vedi abi57.inc */
 
 
 /* ============================================================
