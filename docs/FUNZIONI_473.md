@@ -519,6 +519,10 @@ Oltre alle 474 API, lo shim esporta 10 simboli: le 6 funzioni interne del compil
 
 `runtime/src/registrazione.inc`. Lo scopo: far girare sulla runtime 5.7 del driver programmi e
 librerie compilati con HIP 7.x, comprese le wheel AMD di PyTorch 2.15 (ROCm 10.1, HIP 7.16).
+Le librerie della wheel restano quelle di AMD, con i loro difetti: la MIOpen 10.1 sbaglia ancora il
+gradiente dei pesi con `ConvAsmBwdWrW3x3` (conv 3x3 a 3 canali, scarto relativo 3,5 contro la CPU),
+come la MIOpen non corretta. Con `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` e
+`MIOPEN_DEBUG_CONV_IMPLICIT_GEMM_ASM_WRW_V4R1=0` lo scarto torna a 2,6e-7 (misurato il 12 nov 2026).
 
 - **Registrazione dei kernel.** `__hipRegisterFatBinary/Function/Var` tengono la registrazione nello
   shim; il codice si carica al primo lancio (o alla prima richiesta di attributi o simboli) di quel

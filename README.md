@@ -97,7 +97,7 @@ Il kit è la base di altri componenti 2S, ciascuno nel proprio repository:
 |---|---|
 | copertura export runtime 5.7 | 428 / 428 |
 | copertura unione ROCm 6.1–7.1 | 469 / 469 (474 API `hip*`, 484 export in tutto) |
-| PyTorch 2.15 delle wheel AMD (ROCm 10.1, HIP 7.16) sulla Radeon VII | 12 / 12 prove contro la CPU in fp64: elementari e riduzioni (kpack), rocBLAS fp32/fp16, MIOpen, addestramento, rocRAND, rocSOLVER, rocFFT |
+| PyTorch 2.15 delle wheel AMD (ROCm 10.1, HIP 7.16) sulla Radeon VII | 12 / 12 prove contro la CPU in fp64: elementari e riduzioni (kpack), rocBLAS fp32/fp16, MIOpen (conv in avanti), addestramento, rocRAND, rocSOLVER, rocFFT. ⚠️ La MIOpen 10.1 della wheel ha ancora il difetto del gradiente dei pesi `ConvAsmBwdWrW3x3` (conv 3x3 a 3 canali: scarto relativo 3,5): impostare `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` e `MIOPEN_DEBUG_CONV_IMPLICIT_GEMM_ASM_WRW_V4R1=0` (scarto 2,6e-7), oppure usare la MIOpen corretta di [miopen-gfx906](https://github.com/2s-2solution/miopen-gfx906) |
 | programma compilato con hipcc 7.16 (`<<<...>>>`, `__constant__`, `__device__`, template, attributi, eventi) | OK |
 | catena di caricamento con `MIOpen.dll` | 8 DLL su 8 |
 | audit libreria Tensile gfx906 (tipo × trasposizione) | 42 / 42 complete (prima 41 / 42: un percorso fp16 senza kernel di ripiego) |
@@ -198,8 +198,10 @@ shows no other ABI change. The shim also avoids a 5.7 crash in
 from clang bundles (also zstd-compressed) and ROCm 10 kpack archives; v6 and "sramecc on" code
 objects are adapted for the driver's loader, and the `hidden_dynamic_lds_size` hidden argument,
 unknown to 5.7, is completed at launch. AMD's PyTorch 2.15 wheels (ROCm 10.1) pass 12/12 checks
-against fp64 CPU results on the Radeon VII (kpack kernels, rocBLAS, MIOpen, training, rocRAND,
-rocSOLVER, rocFFT).
+against fp64 CPU results on the Radeon VII (kpack kernels, rocBLAS, MIOpen forward convolution,
+training, rocRAND, rocSOLVER, rocFFT). The wheel's MIOpen 10.1 still has the `ConvAsmBwdWrW3x3`
+weight-gradient defect: set `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` and
+`MIOPEN_DEBUG_CONV_IMPLICIT_GEMM_ASM_WRW_V4R1=0`, or use the fixed MIOpen of miopen-gfx906.
 
 **Contents:** the `amdhip64_7_shim.dll` shim (484 exports: 474 `hip*` APIs, 6 internal
 `__hip*` compiler entry points and 4 diagnostic `marconi_57exp_*` functions; 428/428 runtime
