@@ -18,7 +18,7 @@ Questo repository contiene i **sorgenti** del kit:
 
 | cartella | contenuto |
 |---|---|
-| `runtime/src/shim_main.c`, `runtime/build_shim.cmd` | lo shim **`amdhip64_7_shim.dll`** (installato anche come `amdhip64_7.dll`): **482 export**, cioè **473 API `hip*`**, 5 funzioni interne del compilatore (`__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipUnregisterFatBinary`, `__hipPushCallConfiguration`, `__hipPopCallConfiguration`) e 4 funzioni diagnostiche `marconi_57exp_*`. Le 473 API coprono **428/428** funzioni della runtime 5.7 e **469/469** dell'unione ROCm 6.1+6.2+6.4+7.1 |
+| `runtime/src/shim_main.c`, `runtime/build_shim.cmd` | lo shim **`amdhip64_7_shim.dll`** (installato anche come `amdhip64_7.dll`): **484 export**, cioè **474 API `hip*`**, 6 funzioni interne del compilatore (`__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipRegisterVar`, `__hipUnregisterFatBinary`, `__hipPushCallConfiguration`, `__hipPopCallConfiguration`) e 4 funzioni diagnostiche `marconi_57exp_*`. Le 474 API coprono **428/428** funzioni della runtime 5.7 e **469/469** dell'unione ROCm 6.1+6.2+6.4+7.1 |
 | `include/hip-extensions/` | intestazioni per le API HIP moderne (`hipMallocAsync`, `hipGraph*`, cattura di stream) e la macro `HAVE_HIP_MARCONI_57EXP` |
 | `tensile/` | strumenti della macchina di sviluppo per la libreria Tensile/rocBLAS gfx906 dell'HIP SDK: correzione degli indici e instradamento delle forme reali ai kernel più veloci misurati (`override/*.csv`). Il pacchetto delle Releases porta già la libreria corretta e **non li richiede** |
 | `strumenti/` | sei script Python: audit della libreria Tensile (`audit_coerenza.py`, `audit_ldl.py`), versione e modalità sramecc/xnack dei code object rispetto a ciò che il driver carica (`code_object_tensile.py`), instradamento delle forme (`instrada_shape.py`), misura delle soluzioni rocBLAS di una GEMM (`misura_soluzioni_gemm.py`), confronto degli export HIP fra versioni ROCm (`confronto_versioni_hip.py`) |
@@ -46,11 +46,18 @@ ogni file. MIOpen non fa parte del kit: è nel pacchetto
   non registrati, per esempio la memoria di un tensore CPU di PyTorch (`is_pinned()` terminava il
   processo). Lo shim chiede prima a `hipPointerGetAttributes`, che su quei puntatori risponde senza
   cadere, e per la memoria non HIP restituisce il tipo «non registrato».
-- **10 funzioni** sono implementate dentro lo shim (elenco in
-  [FUNZIONI_473.md](docs/FUNZIONI_473.md), stato «OK propria»): `hipGetProcAddress`,
-  `hipSetValidDevices`, `hipTexRefGetMipMappedArray`, `hipMemcpyAtoHAsync`,
-  `hipMemcpyHtoAAsync`, `hipExtGetLastError`, `hipDrvLaunchKernelEx`, `hipGraphAddNode_v2`,
-  `hipDrvGraphAddMemcpyNode` e `hipGetDevicePropertiesR0600`.
+- **32 funzioni** sono implementate dentro lo shim (elenco in
+  [FUNZIONI_473.md](docs/FUNZIONI_473.md), stato «OK propria»): fra queste `hipGetProcAddress`,
+  `hipSetValidDevices`, `hipDrvLaunchKernelEx`, `hipGraphAddNode_v2`,
+  `hipGetDevicePropertiesR0600` e, dal 12 nov 2026, le 22 che servono al codice compilato con
+  ROCm 7 e 10 (vedi il punto seguente).
+- **Codice compilato con ROCm 7 e 10** (dal 12 nov 2026, `runtime/src/registrazione.inc`): la
+  registrazione dei kernel incorporati (`__hipRegisterFatBinary` e simili, `<<<...>>>`) è tenuta
+  dallo shim; il codice si carica al primo uso dai bundle clang (anche compressi con zstd) e dai
+  kpack di ROCm 10; i code object v6 e quelli "sramecc on" vengono adattati al caricatore del
+  driver; l'argomento nascosto `hidden_dynamic_lds_size`, che la 5.7 non conosce, viene
+  completato al lancio. Con questo girano le wheel AMD di PyTorch 2.15 (ROCm 10.1) sulla
+  Radeon VII. Dettagli in [FUNZIONI_473.md](docs/FUNZIONI_473.md#codice-compilato-con-rocm-7-e-10-12-nov-2026).
 - **`hipGetDevicePropertiesR0600` restituisce valori fissi della Radeon VII**, senza
   interrogare il driver e per qualunque indice di dispositivo: nome «AMD Radeon VII»,
   `gcnArchName` `gfx906:sramecc+:xnack-`, 16 GB, 60 CU, 1801 MHz, wave64 e compute capability
@@ -89,7 +96,9 @@ Il kit è la base di altri componenti 2S, ciascuno nel proprio repository:
 | verifica | esito |
 |---|---|
 | copertura export runtime 5.7 | 428 / 428 |
-| copertura unione ROCm 6.1–7.1 | 469 / 469 (473 API `hip*`, 482 export in tutto) |
+| copertura unione ROCm 6.1–7.1 | 469 / 469 (474 API `hip*`, 484 export in tutto) |
+| PyTorch 2.15 delle wheel AMD (ROCm 10.1, HIP 7.16) sulla Radeon VII | 12 / 12 prove contro la CPU in fp64: elementari e riduzioni (kpack), rocBLAS fp32/fp16, MIOpen, addestramento, rocRAND, rocSOLVER, rocFFT |
+| programma compilato con hipcc 7.16 (`<<<...>>>`, `__constant__`, `__device__`, template, attributi, eventi) | OK |
 | catena di caricamento con `MIOpen.dll` | 8 DLL su 8 |
 | audit libreria Tensile gfx906 (tipo × trasposizione) | 42 / 42 complete (prima 41 / 42: un percorso fp16 senza kernel di ripiego) |
 
@@ -113,18 +122,14 @@ pacchetto. I pacchetti binari non sono nel repository git.
 runtime\build_shim.cmd
 ```
 
-`build_shim.cmd` compila `runtime\src\shim_main.c` della copia del repository e scrive in
+`build_shim.cmd` compila `runtime\src\shim_main.c`, con il decompressore zstd di
+`runtime\src\zstd`, della copia del repository e scrive in
 `runtime\` `amdhip64_7_shim.dll` e `amdhip64_7_shim.lib`. Come compilatore usa, nell'ordine:
 `LLVM_BIN\clang-cl.exe` se `LLVM_BIN` è impostata, poi il clang 21 del kit Marconi installato
 (`%MARCONI_ROOT%\compiler\bin\clang.exe --driver-mode=cl`), poi `C:\Program Files\LLVM\bin`.
 Con il clang del kit il codice esce **identico** a quello della DLL pubblicata (verificato
 confrontando il disassemblato); un LLVM più recente (22) dà codice diverso, non validato.
-Equivale a, da un prompt x64 di Visual Studio Build Tools 2022:
-
-```bat
-cd runtime
-clang-cl /LD /O2 /MD /W2 src\shim_main.c /Fe:amdhip64_7_shim.dll /link kernel32.lib /implib:amdhip64_7_shim.lib
-```
+Le opzioni di compilazione sono nello script.
 
 Per usarla, copiare la DLL nel `bin` del kit installato (`%MARCONI_ROOT%\bin`) **sia** come
 `amdhip64_7_shim.dll` **sia** come `amdhip64_7.dll`. ⚠️ Con clang-cl usare **`/O2`**:
@@ -137,15 +142,12 @@ verificare l'impronta del file: una DLL in uso non si sovrascrive e l'errore è 
 - Le 35 funzioni elencate come **NO** in [FUNZIONI_473.md](docs/FUNZIONI_473.md)
   (nodi grafo generici, semafori esterni nei grafi, varianti di strutture `R0000`/`R0600`…)
   rispondono 801.
-- `__hipRegisterFatBinary`, `__hipRegisterFunction` e `__hipUnregisterFatBinary` sono
-  **vuote**: restituiscono un handle finto e non registrano nulla. Servono perché le librerie
-  costruite con ROCm 7 (per esempio hipBLASLt di TheRock) pre-registrano code object v5 che
-  la runtime 5.7 rifiuta, facendo cadere il processo. Di conseguenza un programma che usa lo
-  shim come runtime (cioè è collegato ad `amdhip64_7.dll`) e lancia kernel incorporati con
-  `<<<...>>>` non li trova registrati: attraverso lo shim i kernel vanno caricati
-  esplicitamente con `hipModuleLoad*`/`hipModuleGetFunction`, come fanno MIOpen e ZLUDA.
-  I programmi collegati direttamente alla runtime del driver (`amdhip64.dll`) non passano
-  dallo shim e non hanno questo limite.
+- La registrazione dei kernel (`__hipRegisterFatBinary` e simili) è implementata nello shim dal
+  12 nov 2026: un programma o una libreria compilati con HIP 7.x che lanciano kernel incorporati
+  con `<<<...>>>` girano attraverso lo shim, comprese le wheel AMD di PyTorch 2.15 (kpack di ROCm 10,
+  bundle compressi). Dettagli e limiti in [FUNZIONI_473.md](docs/FUNZIONI_473.md#codice-compilato-con-rocm-7-e-10-12-nov-2026):
+  bundle compressi con zlib non supportati; `hipExtLaunchKernel` e `hipLaunchCooperativeKernel`
+  per puntatore host non conoscono i kernel registrati dallo shim.
 - Nella libreria rocBLAS del kit i kernel per gfx900 (Vega 10) sono code object **v6**, che il
   driver Adrenalin non carica (lo mostra `strumenti/code_object_tensile.py --arch gfx900`): su
   una Vega 10 rocBLAS del kit non funzionerebbe. Quelli per gfx906 sono v4 e v5.
@@ -191,9 +193,17 @@ external-semaphore parameters moved. A systematic header comparison (50 structs,
 shows no other ABI change. The shim also avoids a 5.7 crash in
 `hipDrvPointerGetAttributes(MEMORY_TYPE)` on some unregistered host pointers.
 
-**Contents:** the `amdhip64_7_shim.dll` shim (482 exports: 473 `hip*` APIs, 5 internal
+**Code built with ROCm 7 and 10** (since 12 Nov 2026): the shim keeps the kernel registration
+(`__hipRegisterFatBinary` and friends, `<<<...>>>` launches) itself and loads the code on first use
+from clang bundles (also zstd-compressed) and ROCm 10 kpack archives; v6 and "sramecc on" code
+objects are adapted for the driver's loader, and the `hidden_dynamic_lds_size` hidden argument,
+unknown to 5.7, is completed at launch. AMD's PyTorch 2.15 wheels (ROCm 10.1) pass 12/12 checks
+against fp64 CPU results on the Radeon VII (kpack kernels, rocBLAS, MIOpen, training, rocRAND,
+rocSOLVER, rocFFT).
+
+**Contents:** the `amdhip64_7_shim.dll` shim (484 exports: 474 `hip*` APIs, 6 internal
 `__hip*` compiler entry points and 4 diagnostic `marconi_57exp_*` functions; 428/428 runtime
-5.7 functions forwarded, 469/469 of the ROCm 6.1–7.1 API union exposed; 10 implemented in the
+5.7 functions forwarded, 469/469 of the ROCm 6.1–7.1 API union exposed; 32 implemented in the
 shim, 35 returning an explicit `hipErrorNotSupported`, plus a null-stream bridge for
 `hipStreamWaitEvent`). `hipGetDevicePropertiesR0600` returns fixed Radeon VII values
 (including compute capability 7.0) for any device, without querying the driver. Also:
@@ -208,10 +218,12 @@ SHA256, extract it anywhere and run `installa.cmd` (installs to `%LOCALAPPDATA%\
 sets the user environment, runs a GPU check).
 
 **Build the shim:** `runtime\build_shim.cmd` (set `LLVM_BIN` to the folder with
-`clang-cl.exe`), or `clang-cl /LD /O2 /MD src\shim_main.c /Fe:amdhip64_7_shim.dll /link
-kernel32.lib /implib:amdhip64_7_shim.lib` (use `/O2`: clang-cl silently drops `-O3`).
+`clang-cl.exe`); it compiles `src\shim_main.c` and the bundled zstd 1.5.7 decompressor
+(`src\zstd`, BSD). Use `/O2`: clang-cl silently drops `-O3`.
 
-**Known limits:** 35 functions return 801; the kit's rocBLAS kernels for gfx900 (Vega 10) are
+**Known limits:** 35 functions return 801; zlib-compressed bundles are not supported (zstd
+only); `hipExtLaunchKernel` and `hipLaunchCooperativeKernel` by host pointer do not see kernels
+registered by the shim; the kit's rocBLAS kernels for gfx900 (Vega 10) are
 code object v6, which the Adrenalin driver does not load (`strumenti/code_object_tensile.py`); forwarders assume integer-only arguments; one
 compute engine at a time under WDDM; a native HIP runtime for gfx906 cannot be built
 because the Windows PAL layer no longer lists GFX9 devices; the tools in `strumenti/` find

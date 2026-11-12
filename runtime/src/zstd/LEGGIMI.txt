@@ -1,0 +1,7 @@
+Decompressore zstd 1.5.7 (Meta Platforms, licenza BSD: vedi LICENSE), solo la parte di decompressione,
+copiato senza modifiche da lib/common e lib/decompress della distribuzione ufficiale.
+
+Lo shim lo usa per aprire i bundle clang compressi ("CCOB", metodo zstd) con cui ROCm 7+ distribuisce i
+code object, per esempio i file .co della libreria Tensile di rocBLAS. Si compila con ZSTD_DISABLE_ASM
+(la versione assembler di huf_decompress e' solo per gcc/clang su Linux) e senza il formato legacy.
+2 Solution.

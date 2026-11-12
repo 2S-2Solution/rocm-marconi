@@ -22,13 +22,138 @@
 typedef int hipError_t;
 #define hipSuccess              0
 #define hipErrorNotInitialized  3
+#define hipErrorDeinitialized   4   /* la runtime si sta chiudendo (cudaErrorCudartUnloading) */
 #define hipErrorInvalidValue    7
 #define hipErrorNotSupported    801
 
+/* Traccia diagnostica: solo nelle build compilate con /DREG_TRACCIA, scrive su stderr. */
+#ifdef REG_TRACCIA
+#include <stdio.h>
+#include <stdarg.h>
+static void reg_traccia(const char* f, ...) {
+    char b[1024]; va_list a; DWORD s = 0; int n;
+    va_start(a, f); n = _vsnprintf(b, sizeof(b) - 2, f, a); va_end(a);
+    if (n < 0 || n > (int)sizeof(b) - 2) n = (int)sizeof(b) - 2;
+    b[n++] = '\n';
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), b, (DWORD)n, &s, NULL);
+}
+#define REG_T(...) reg_traccia(__VA_ARGS__)
+#define REG_CHIUSURA_T(n) do { if (marconi_in_chiusura()) reg_traccia("[shim] chiamata in chiusura: %s", n); } while (0)
+static void reg_descrivi(const char* cosa, void* a) {
+    HMODULE m = NULL; char n[MAX_PATH] = "?";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)a, &m))
+        GetModuleFileNameA(m, n, MAX_PATH);
+    reg_traccia("%s %p = %s+0x%llx", cosa, a, strrchr(n, '\\') ? strrchr(n, '\\') + 1 : n,
+                (unsigned long long)((char*)a - (char*)m));
+}
+static LONG WINAPI reg_eccezione(EXCEPTION_POINTERS* ep) {
+    ULONG_PTR* sp; int k, visti = 0;
+    if (ep->ExceptionRecord->ExceptionCode != 0xC0000005) return EXCEPTION_CONTINUE_SEARCH;
+    reg_traccia("*** [shim] access violation, indirizzo letto/scritto 0x%llx", (unsigned long long)ep->ExceptionRecord->ExceptionInformation[1]);
+    reg_descrivi("  in", ep->ExceptionRecord->ExceptionAddress);
+    sp = (ULONG_PTR*)ep->ContextRecord->Rsp;
+    for (k = 0; k < 1024 && visti < 25; k++) {
+        HMODULE m = NULL;
+        if (sp[k] > 0x10000 && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)sp[k], &m)) {
+            reg_descrivi("  pila", (void*)sp[k]); visti++;
+        }
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#else
+#define REG_T(...) ((void)0)
+#define REG_CHIUSURA_T(n) ((void)0)
+#endif
+
 static HMODULE g_amdhip64 = NULL;
+static HMODULE g_comgr_driver = NULL;   /* la amd_comgr.dll usata dalla runtime del driver */
+
+/* Ripunta gli import che il modulo m prende da `dll` sulle funzioni omonime di `nuova` (tabella IAT di
+ * m, nella memoria di questo processo). Prima si risolvono tutti i nomi, poi si scrive: o tutti o nessuno.
+ * Restituisce il numero di voci ripuntate, oppure <0 se non si e' potuto (e nulla e' cambiato). */
+static int marconi_rilega_import(HMODULE m, const char* dll, HMODULE nuova) {
+    BYTE* base = (BYTE*)m;
+    IMAGE_NT_HEADERS64* nt = (IMAGE_NT_HEADERS64*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    IMAGE_DATA_DIRECTORY dd = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    IMAGE_IMPORT_DESCRIPTOR* d;
+    int passo, n = 0;
+    if (!dd.VirtualAddress) return -1;
+    for (passo = 0; passo < 2; passo++) {
+        n = 0;
+        for (d = (IMAGE_IMPORT_DESCRIPTOR*)(base + dd.VirtualAddress); d->Name; d++) {
+            IMAGE_THUNK_DATA64 *nomi, *iat;
+            if (lstrcmpiA((const char*)(base + d->Name), dll) != 0) continue;
+            if (!d->OriginalFirstThunk) return -2;        /* senza la tabella dei nomi non si sa cosa ripuntare */
+            nomi = (IMAGE_THUNK_DATA64*)(base + d->OriginalFirstThunk);
+            iat = (IMAGE_THUNK_DATA64*)(base + d->FirstThunk);
+            for (; nomi->u1.AddressOfData; nomi++, iat++) {
+                FARPROC f = IMAGE_SNAP_BY_ORDINAL64(nomi->u1.Ordinal)
+                    ? GetProcAddress(nuova, (LPCSTR)(ULONG_PTR)IMAGE_ORDINAL64(nomi->u1.Ordinal))
+                    : GetProcAddress(nuova, (LPCSTR)((IMAGE_IMPORT_BY_NAME*)(base + nomi->u1.AddressOfData))->Name);
+                if (!f) return -3;
+                if (passo == 1) {
+                    DWORD prima;
+                    if (!VirtualProtect(&iat->u1.Function, sizeof(iat->u1.Function), PAGE_READWRITE, &prima)) return -4;
+                    iat->u1.Function = (ULONGLONG)(ULONG_PTR)f;
+                    VirtualProtect(&iat->u1.Function, sizeof(iat->u1.Function), prima, &prima);
+                }
+                n++;
+            }
+        }
+    }
+    return n;
+}
+
+/* La runtime 5.7 del driver importa amd_comgr.dll per nome. Se nel processo ce n'e' gia' un'altra
+ * (le wheel AMD di PyTorch precaricano quella di ROCm 10), Windows lega l'import a quella e la runtime
+ * 5.7 va in crash nel suo thread di caricamento del codice. In quel caso si carica per percorso completo
+ * la amd_comgr.dll del driver (cartella di sistema), che convive con l'altra, e si ripuntano su di essa
+ * gli import della runtime del driver. Chi usa l'altra amd_comgr.dll non e' toccato. */
+static HMODULE marconi_carica_driver(const char* percorso) {
+    HMODULE gia = GetModuleHandleA("amd_comgr.dll"), h, sua;
+    char nome[MAX_PATH], atteso[MAX_PATH];
+    UINT n = GetSystemDirectoryA(atteso, MAX_PATH);
+    int r;
+    h = LoadLibraryA(percorso);
+    if (!h || !gia || n == 0 || n > MAX_PATH - 16) return h;
+    lstrcatA(atteso, "\\amd_comgr.dll");
+    if (!GetModuleFileNameA(gia, nome, MAX_PATH) || lstrcmpiA(nome, atteso) == 0) return h;
+    sua = LoadLibraryExA(atteso, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+    r = sua ? marconi_rilega_import(h, "amd_comgr.dll", sua) : -5;
+    REG_T("[shim] amd_comgr gia' caricata da %s: import della runtime del driver ripuntati su %s -> %d", nome, atteso, r);
+    if (r > 0) g_comgr_driver = sua;
+    return h;
+}
+
+/* Vero mentre il processo termina (ExitProcess): le DLL vengono staccate e la runtime del driver,
+ * caricata per ultima, e' la prima a chiudersi. */
+typedef BOOLEAN (WINAPI *marconi_f_chiusura)(void);
+static int marconi_in_chiusura(void) {
+    static marconi_f_chiusura f = NULL;
+    static int cercata = 0;
+    if (!cercata) { f = (marconi_f_chiusura)GetProcAddress(GetModuleHandleA("ntdll.dll"), "RtlDllShutdownInProgress"); cercata = 1; }
+    return f ? f() != 0 : 0;
+}
+
+/* In chiusura la runtime del driver e' gia' staccata e non le si inoltra nulla. Le operazioni di pulizia
+ * (memoria, stream, eventi, moduli: le libera comunque Windows) si danno per riuscite, perche' alcune
+ * librerie abortiscono se falliscono nei distruttori; le altre rispondono hipErrorDeinitialized, come la
+ * runtime CUDA durante lo scaricamento. */
+static int marconi_esito_in_chiusura(const char* nome) {
+    static const char* const pulizia[] = { "Free", "Destroy", "Unload", "Unregister", "Release" };
+    int k;
+    for (k = 0; k < (int)(sizeof(pulizia) / sizeof(pulizia[0])); k++)
+        if (strstr(nome, pulizia[k])) return hipSuccess;
+    return hipErrorDeinitialized;
+}
+
 static int marconi_shim_bootstrap(void) {
     if (g_amdhip64) return 1;
-    g_amdhip64 = LoadLibraryA("C:\\Windows\\System32\\amdhip64.dll");
+#ifdef REG_TRACCIA
+    AddVectoredExceptionHandler(0, reg_eccezione);
+#endif
+    g_amdhip64 = marconi_carica_driver("C:\\Windows\\System32\\amdhip64.dll");
+    if (g_amdhip64 && !g_comgr_driver) g_comgr_driver = GetModuleHandleA("amd_comgr.dll");
     return g_amdhip64 ? 1 : 0;
 }
 
@@ -338,6 +463,8 @@ static void conv_v57_to_R0600(const hipDeviceProp_v57* src, hipDeviceProp_R0600*
             pfn = (int(*)(void*,void*,void*,void*,void*,void*,void*,void*,void*))GetProcAddress(g_amdhip64, #name); \
             if (!pfn) return hipErrorNotSupported; \
         } \
+        REG_CHIUSURA_T(#name); \
+        if (marconi_in_chiusura()) return marconi_esito_in_chiusura(#name); \
         return pfn(a,b,c,d,e,f,g,h,i); \
     }
 
@@ -373,9 +500,9 @@ FWD9(hipDeviceGetUuid)
 FWD9(hipModuleUnload)
 FWD9(hipGetDeviceCount)
 FWD9(hipDeviceGetAttribute)
-FWD9(hipModuleLoadData)
-FWD9(hipModuleGetFunction)
-FWD9(hipSetDevice)
+/* FWD9(hipModuleLoadData): vedi registrazione.inc */
+/* FWD9(hipModuleGetFunction): vedi registrazione.inc */
+/* FWD9(hipSetDevice): vedi registrazione.inc */
 FWD9(hipArray3DCreate)
 FWD9(hipArrayCreate)
 FWD9(hipArrayDestroy)
@@ -383,7 +510,7 @@ FWD9(hipDeviceGetLimit)
 FWD9(hipDeviceGetStreamPriorityRange)
 FWD9(hipDeviceSetLimit)
 FWD9(hipDeviceSynchronize)
-FWD9(hipGetDevice)
+/* FWD9(hipGetDevice): vedi registrazione.inc */
 FWD9(hipDeviceCanAccessPeer)
 FWD9(hipDeviceGet)
 FWD9(hipDeviceGetName)
@@ -396,7 +523,7 @@ FWD9(hipEventQuery)
 FWD9(hipEventRecord)
 FWD9(hipEventSynchronize)
 FWD9(hipFuncGetAttribute)
-FWD9(hipFuncSetAttribute)
+/* FWD9(hipFuncSetAttribute): vedi registrazione.inc */
 FWD9(hipGraphAddDependencies)
 FWD9(hipGraphAddEventRecordNode)
 FWD9(hipGraphAddKernelNode)
@@ -409,7 +536,7 @@ FWD9(hipGraphGetNodes)
 FWD9(hipGraphInstantiateWithFlags)
 FWD9(hipGraphLaunch)
 FWD9(hipInit)
-FWD9(hipModuleLaunchKernel)
+/* FWD9(hipModuleLaunchKernel): vedi registrazione.inc */
 FWD9(hipModuleGetGlobal)
 FWD9(hipMallocAsync)
 FWD9(hipMemAllocPitch)
@@ -538,22 +665,14 @@ FWD9(__hipPushCallConfiguration)
  * v5.7 Adrenalin supporta solo cov3/cov4. hipblaslt TheRock 7.14 pre-registra fat cov5.
  * Soluzione: STUB NO-OP che ritorna fake handle (1). Tensile pre-registra fake binaries
  * MA i kernel reali li carica via ROCBLAS_TENSILE_LIBPATH ROCm 5.7 cov3/cov4. */
-__declspec(dllexport) void* __hipRegisterFatBinary(void* fatbin) {
-    return (void*)1;  /* fake handle, no register */
-}
-__declspec(dllexport) void __hipRegisterFunction(void* a, void* b, void* c, void* d, void* e, void* f, void* g, void* h, void* i, void* j) {
-    /* NO-OP: ignora register, Tensile carica direttamente .hsaco */
-}
-__declspec(dllexport) void __hipUnregisterFatBinary(void* h) {
-    /* NO-OP */
-}
+/* 12 nov 2026: la registrazione vera (lazy, HIPK/HIPF, v6 -> v5) e' in registrazione.inc. */
 
 /* === v3.6 rocBLAS PE imports (Vega T12:00 21 giu)
  * rocblas.dll richiede 3 simboli aggiuntivi non in shim v3.5. */
 FWD9(hipMemPoolTrimTo)
 FWD9(hipModuleOccupancyMaxActiveBlocksPerMultiprocessor)
-/* hipExtGetLastError NON in v5.7 → FWD9 ritorna NotSupported automaticamente */
-FWD9(hipExtGetLastError)
+/* hipExtGetLastError non c'e' nella 5.7: lo implementa registrazione.inc */
+/* FWD9(hipExtGetLastError): vedi registrazione.inc */
 
 /* === v3.3 NUOVI forwarder CRITICI per torch.zeros / kernel launch === */
 FWD9(hipMemcpy)
@@ -561,7 +680,7 @@ FWD9(hipMemset)
 FWD9(hipMemsetAsync)
 FWD9(hipStreamCreate)
 FWD9(hipEventCreate)
-FWD9(hipLaunchKernel)
+/* FWD9(hipLaunchKernel): vedi registrazione.inc */
 FWD9(hipCtxGetCurrent)
 FWD9(hipCtxSetCurrent)
 FWD9(hipCtxGetDevice)
@@ -583,8 +702,8 @@ FWD9(hipStreamGetFlags)
 FWD9(hipStreamGetPriority)
 FWD9(hipDriverGetVersion)
 FWD9(hipRuntimeGetVersion)
-FWD9(hipGetLastError)
-FWD9(hipPeekAtLastError)
+/* FWD9(hipGetLastError): vedi registrazione.inc */
+/* FWD9(hipPeekAtLastError): vedi registrazione.inc */
 FWDP(hipGetErrorName)
 FWDP(hipGetErrorString)
 FWD9(hipMemcpy2D)
@@ -609,15 +728,15 @@ FWD9(hipHostRegister)
 FWD9(hipHostUnregister)
 FWD9(hipHostGetFlags)
 /* FWD9(hipPointerGetAttributes): tradotta, vedi abi57.inc */
-FWD9(hipFuncSetCacheConfig)
+/* FWD9(hipFuncSetCacheConfig): vedi registrazione.inc */
 FWD9(hipFuncSetSharedMemConfig)
 FWD9(hipDeviceSetCacheConfig)
 FWD9(hipDeviceGetCacheConfig)
 FWD9(hipDeviceSetSharedMemConfig)
 FWD9(hipDeviceGetSharedMemConfig)
-FWD9(hipOccupancyMaxActiveBlocksPerMultiprocessor)
+/* FWD9(hipOccupancyMaxActiveBlocksPerMultiprocessor): vedi registrazione.inc */
 FWD9(hipOccupancyMaxActiveBlocksPerMultiprocessorWithFlags)
-FWD9(hipModuleLoad)
+/* FWD9(hipModuleLoad): vedi registrazione.inc */
 FWD9(hipDevicePrimaryCtxRetain)
 FWD9(hipDevicePrimaryCtxRelease)
 FWD9(hipDevicePrimaryCtxReset)
@@ -722,6 +841,7 @@ __declspec(dllexport) int hipDrvGraphAddMemcpyNode(void* node, void* graph, void
 #define hipErrorOutOfMemory 2
 #endif
 #include "abi57.inc"
+#include "registrazione.inc"
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     (void)hinst; (void)reserved;
@@ -774,15 +894,15 @@ FWDP(hipExtStreamGetCUMask)
 FWDP(hipExternalMemoryGetMappedBuffer)
 FWDP(hipFreeArray)
 FWDP(hipFreeMipmappedArray)
-FWDP(hipFuncGetAttributes)
+/* FWDP(hipFuncGetAttributes): vedi registrazione.inc */
 FWDP(hipGLGetDevices)
 FWDP(hipGetChannelDesc)
 FWDP(hipGetCmdName)
 FWDP(hipGetDeviceFlags)
 FWDP(hipGetMipmappedArrayLevel)
 FWDP(hipGetStreamDeviceId)
-FWDP(hipGetSymbolAddress)
-FWDP(hipGetSymbolSize)
+/* FWDP(hipGetSymbolAddress): vedi registrazione.inc */
+/* FWDP(hipGetSymbolSize): vedi registrazione.inc */
 FWDP(hipGetTextureAlignmentOffset)
 FWDP(hipGetTextureObjectResourceDesc)
 FWDP(hipGetTextureObjectResourceViewDesc)
@@ -909,16 +1029,16 @@ FWDP(hipMemcpyAsync_spt)
 FWDP(hipMemcpyAtoH)
 FWDP(hipMemcpyFromArray)
 FWDP(hipMemcpyFromArray_spt)
-FWDP(hipMemcpyFromSymbol)
-FWDP(hipMemcpyFromSymbolAsync)
+/* FWDP(hipMemcpyFromSymbol): vedi registrazione.inc */
+/* FWDP(hipMemcpyFromSymbolAsync): vedi registrazione.inc */
 FWDP(hipMemcpyFromSymbolAsync_spt)
 FWDP(hipMemcpyFromSymbol_spt)
 /* FWDP(hipMemcpyParam2DAsync): tradotta, vedi abi57.inc */
 FWDP(hipMemcpyPeer)
 FWDP(hipMemcpyPeerAsync)
 FWDP(hipMemcpyToArray)
-FWDP(hipMemcpyToSymbol)
-FWDP(hipMemcpyToSymbolAsync)
+/* FWDP(hipMemcpyToSymbol): vedi registrazione.inc */
+/* FWDP(hipMemcpyToSymbolAsync): vedi registrazione.inc */
 FWDP(hipMemcpyToSymbolAsync_spt)
 FWDP(hipMemcpyToSymbol_spt)
 FWDP(hipMemset2DAsync_spt)
@@ -934,9 +1054,9 @@ FWDP(hipMipmappedArrayDestroy)
 FWDP(hipMipmappedArrayGetLevel)
 FWDP(hipModuleLaunchCooperativeKernelMultiDevice)
 FWDP(hipModuleLaunchKernelExt)
-FWDP(hipModuleLoadDataEx)
+/* FWDP(hipModuleLoadDataEx): vedi registrazione.inc */
 FWDP(hipModuleOccupancyMaxPotentialBlockSizeWithFlags)
-FWDP(hipOccupancyMaxPotentialBlockSize)
+/* FWDP(hipOccupancyMaxPotentialBlockSize): vedi registrazione.inc */
 FWDP(hipProfilerStart)
 FWDP(hipProfilerStop)
 FWDP(hipRegisterTracerCallback)

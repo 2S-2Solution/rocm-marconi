@@ -7,3 +7,9 @@ HIP is Copyright (c) Advanced Micro Devices, Inc., released under the MIT Licens
 repository; the shim forwards calls at runtime to the amdhip64.dll installed with the
 AMD driver. Tensile/rocBLAS (MIT, Advanced Micro Devices, Inc.) are referenced by the
 tools in tensile/ and strumenti/ but not included.
+
+runtime/src/zstd/ contains the decompression part of Zstandard 1.5.7, unmodified,
+Copyright (c) Meta Platforms, Inc. and affiliates, BSD license (runtime/src/zstd/LICENSE).
+It is compiled into the shim to open compressed clang offload bundles (CCOB).
+The kpack (HIPK) path calls rocm_kpack.dll from the AMD ROCm wheels at runtime;
+that library is not included.

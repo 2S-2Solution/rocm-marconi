@@ -35,7 +35,12 @@ if errorlevel 1 (
 
 echo === Build amdhip64_7_shim.dll con %CC% ===
 %CC% /LD /O2 /MD /W2 ^
+    /DZSTD_DISABLE_ASM /DZSTD_LEGACY_SUPPORT=0 /DXXH_NAMESPACE=ZSTD_ ^
     src\shim_main.c ^
+    src\zstd\common\debug.c src\zstd\common\entropy_common.c src\zstd\common\error_private.c ^
+    src\zstd\common\fse_decompress.c src\zstd\common\xxhash.c src\zstd\common\zstd_common.c ^
+    src\zstd\decompress\huf_decompress.c src\zstd\decompress\zstd_ddict.c ^
+    src\zstd\decompress\zstd_decompress.c src\zstd\decompress\zstd_decompress_block.c ^
     /Fe:amdhip64_7_shim.dll ^
     /link kernel32.lib /implib:amdhip64_7_shim.lib
 
@@ -47,7 +52,7 @@ if %RC% EQU 0 (
     echo.
     echo === Export ===
     dumpbin /nologo /exports amdhip64_7_shim.dll | "%SystemRoot%\System32\findstr.exe" /R /C:" hip" /C:" __hip" /C:" marconi_" | "%SystemRoot%\System32\find.exe" /c /v ""
-    echo export hip e marconi contati qui sopra: attesi 482
+    echo export hip e marconi contati qui sopra: attesi 484
 ) else (
     echo *** BUILD FAIL RC=%RC% ***
 )
