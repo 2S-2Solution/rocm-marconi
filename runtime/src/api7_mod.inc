@@ -39,19 +39,14 @@ __declspec(dllexport) int hipModuleLoadFatBinary(void** modulo, const void* fatb
     return reg_carica_immagine(modulo, fatbin);
 }
 
-/* hipModuleUnload: toglie dalla lista i kernel del modulo (gli handle hipKernel_t che vi puntano non
- * vanno piu' usati) e inoltra alla 5.7. */
+/* hipModuleUnload: stacca dalla lista i kernel del modulo e inoltra alla 5.7. Le descrizioni NON si
+ * liberano: le associazioni funzione -> descrizione (reg_fun_infos) e gli handle hipKernel_t possono
+ * ancora puntarci, e liberarle darebbe un uso-dopo-free se il driver riusa l'indirizzo di una funzione
+ * (reg_associa aggiorna poi l'associazione). Costo: poche centinaia di byte per modulo scaricato. */
 typedef int (*api7_f_unload)(void* modulo);
 __declspec(dllexport) int hipModuleUnload(void* modulo) {
-    reg_kinfo **pp, *k;
     if (marconi_in_chiusura()) return marconi_esito_in_chiusura("hipModuleUnload");
-    AcquireSRWLockExclusive(&reg_kinfo_lock);
-    pp = &reg_kinfo_lista;
-    while ((k = *pp) != NULL) {
-        if (k->modulo == modulo) { *pp = k->succ; free(k->nome); free(k->tipi); free(k->off); free(k->sz); free(k); }
-        else pp = &k->succ;
-    }
-    ReleaseSRWLockExclusive(&reg_kinfo_lock);
+    reg_stacca_modulo(modulo);
     { ABI57_REALE(reale, api7_f_unload, "hipModuleUnload"); return reale(modulo); }
 }
 
@@ -101,7 +96,7 @@ __declspec(dllexport) int hipLibraryLoadFromFile(void** library, const char* fil
     rc = hipModuleLoad(&modulo, file);               /* legge il file e carica (resta vivo) */
     if (rc != hipSuccess) return rc;
     lib = (api7_library*)calloc(1, sizeof(api7_library));
-    if (!lib) return hipErrorOutOfMemory;
+    if (!lib) { hipModuleUnload(modulo); return hipErrorOutOfMemory; }
     lib->modulo = modulo;
     *library = lib;
     return hipSuccess;
@@ -128,11 +123,13 @@ __declspec(dllexport) int hipLibraryGetKernelCount(unsigned int* count, void* li
     return hipSuccess;
 }
 
+/* Le funzioni si associano (reg_associa, per il completamento di hidden_dynamic_lds_size) DOPO aver
+ * rilasciato reg_kinfo_lock: reg_associa lo riprende e gli SRWLOCK non sono rientranti. */
 __declspec(dllexport) int hipLibraryEnumerateKernels(void** kernels, unsigned int numKernels, void* library) {
     api7_library* lib = (api7_library*)library;
     api7_f_getfunc getf = (api7_f_getfunc)abi57_reale("hipModuleGetFunction");
     reg_kinfo* k;
-    unsigned int i = 0;
+    unsigned int i = 0, j;
     if (!kernels || !lib) return hipErrorInvalidValue;
     if (!getf) return hipErrorNotSupported;
     AcquireSRWLockShared(&reg_kinfo_lock);
@@ -147,6 +144,10 @@ __declspec(dllexport) int hipLibraryEnumerateKernels(void** kernels, unsigned in
         } else { free(kk); }
     }
     ReleaseSRWLockShared(&reg_kinfo_lock);
+    for (j = 0; j < i; j++) {
+        api7_kernel* kk = (api7_kernel*)kernels[j];
+        reg_associa(kk->func, lib->modulo, kk->info->nome);
+    }
     return hipSuccess;
 }
 
@@ -218,18 +219,30 @@ __declspec(dllexport) int hipKernelGetParamInfo(void* kernel, size_t paramIndex,
     return hipErrorInvalidValue;
 }
 
-/* ---- link JIT (hipLink*) sopra hiprtcLink* di hipRTC 5.7 ----
- * hipRTC 5.7 espone hiprtcLinkCreate/AddData/AddFile/Complete/Destroy, che fanno il collegamento di piu'
- * code object in uno solo. Le opzioni JIT di HIP non si traducono una a una in quelle di hipRTC, quindi
- * si crea un link senza opzioni (comportamento predefinito). hipJitInputType: 0 cubin/co, 1 ptx/llvm-ir;
- * si passano a hiprtc come LLVM_BITCODE (0) o come immagine gia' compilata, che e' l'uso comune. */
+/* ---- link JIT (hipLink*) sopra hiprtcLink* di hipRTC ----
+ * hipRTC espone hiprtcLinkCreate/AddData/AddFile/Complete/Destroy, che collegano bitcode LLVM e oggetti
+ * in un code object eseguibile. I valori di hipJitInputType (cubin 0, ptx 1, ..., LLVM bitcode 100,
+ * bundled 101, archivi 102, SPIR-V 103) coincidono con hiprtcJITInputType, e quelli di hipJitOption
+ * con hiprtcJIT_option: si passano invariati. Si passano solo le opzioni note anche a hipRTC 5.7
+ * (valore < 17, hipJitOptionNumOptions della 5.7); le piu' nuove si scartano.
+ * hipRTC: prima la 5.7 del kit (hiprtc0507.dll, nel bin di Marconi), poi quella accanto allo shim
+ * nelle wheel AMD (hiprtc0716.dll di ROCm 10). */
 static HMODULE api7_hiprtc(void) {
     static HMODULE h = NULL;
-    if (!h) {
-        h = GetModuleHandleA("hiprtc0507.dll");
-        if (!h) h = LoadLibraryA("hiprtc0507.dll");
-    }
+    static const char* nomi[] = { "hiprtc0507.dll", "hiprtc0716.dll" };
+    int i;
+    for (i = 0; !h && i < 2; i++) h = GetModuleHandleA(nomi[i]);
+    for (i = 0; !h && i < 2; i++) h = LoadLibraryA(nomi[i]);
     return h;
+}
+
+/* opzioni note a hipRTC 5.7 (valore < 17), compattate in testa a due array del chiamante */
+#define API7_JIT_MAX 32
+static unsigned int api7_opzioni_note(unsigned int n, const int* opt, void* const* val, int* o2, void** v2) {
+    unsigned int i, m = 0;
+    for (i = 0; opt && val && i < n && m < API7_JIT_MAX; i++)
+        if (opt[i] >= 0 && opt[i] < 17) { o2[m] = opt[i]; v2[m] = val[i]; m++; }
+    return m;
 }
 typedef int (*api7_f_lcreate)(unsigned int n, void* opt, void** val, void** out);
 typedef int (*api7_f_ladd)(void* state, int type, void* data, size_t size, const char* name, unsigned int n, void* opt, void** val);
@@ -244,23 +257,26 @@ typedef int (*api7_f_ldestroy)(void* state);
     if (!var) return hipErrorNotSupported;
 
 __declspec(dllexport) int hipLinkCreate(unsigned int n, void* opt, void** val, void** out) {
-    (void)n; (void)opt; (void)val;
+    int o2[API7_JIT_MAX]; void* v2[API7_JIT_MAX]; unsigned int m;
     { API7_HIPRTC(crea, api7_f_lcreate, "hiprtcLinkCreate");
       if (!out) return hipErrorInvalidValue;
-      return crea(0, NULL, NULL, out) == 0 ? hipSuccess : hipErrorNotSupported; }
+      m = api7_opzioni_note(n, (const int*)opt, val, o2, v2);
+      return crea(m, m ? o2 : NULL, m ? v2 : NULL, out) == 0 ? hipSuccess : hipErrorInvalidValue; }
 }
 __declspec(dllexport) int hipLinkAddData(void* state, int type, void* data, size_t size, const char* name,
                                          unsigned int n, void* opt, void** val) {
-    (void)n; (void)opt; (void)val;
+    int o2[API7_JIT_MAX]; void* v2[API7_JIT_MAX]; unsigned int m;
     { API7_HIPRTC(add, api7_f_ladd, "hiprtcLinkAddData");
       if (!state || !data) return hipErrorInvalidValue;
-      return add(state, type, data, size, name, 0, NULL, NULL) == 0 ? hipSuccess : hipErrorInvalidImage; }
+      m = api7_opzioni_note(n, (const int*)opt, val, o2, v2);
+      return add(state, type, data, size, name, m, m ? o2 : NULL, m ? v2 : NULL) == 0 ? hipSuccess : hipErrorInvalidImage; }
 }
 __declspec(dllexport) int hipLinkAddFile(void* state, int type, const char* path, unsigned int n, void* opt, void** val) {
-    (void)n; (void)opt; (void)val;
+    int o2[API7_JIT_MAX]; void* v2[API7_JIT_MAX]; unsigned int m;
     { API7_HIPRTC(add, api7_f_laddf, "hiprtcLinkAddFile");
       if (!state || !path) return hipErrorInvalidValue;
-      return add(state, type, path, 0, NULL, NULL) == 0 ? hipSuccess : hipErrorFileNotFound; }
+      m = api7_opzioni_note(n, (const int*)opt, val, o2, v2);
+      return add(state, type, path, m, m ? o2 : NULL, m ? v2 : NULL) == 0 ? hipSuccess : hipErrorFileNotFound; }
 }
 __declspec(dllexport) int hipLinkComplete(void* state, void** bin, size_t* size) {
     API7_HIPRTC(fine, api7_f_lcomplete, "hiprtcLinkComplete");

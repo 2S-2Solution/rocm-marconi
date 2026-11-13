@@ -303,13 +303,38 @@ static reg_kinfo* reg_kinfo_trova(void* modulo, const char* nome) {
     return k;
 }
 
-/* Dopo hipModuleGetFunction: ricorda quali funzioni vanno completate al lancio. */
+/* Stacca dalla lista i kernel di un modulo che si sta scaricando. Le descrizioni non si liberano:
+ * reg_fun_infos e gli handle hipKernel_t possono ancora puntarci (vedi reg_associa). */
+static void reg_stacca_modulo(void* modulo) {
+    reg_kinfo **pp, *k;
+    if (!modulo) return;
+    AcquireSRWLockExclusive(&reg_kinfo_lock);
+    pp = &reg_kinfo_lista;
+    while ((k = *pp) != NULL) {
+        if (k->modulo == modulo) { *pp = k->succ; k->succ = NULL; k->modulo = NULL; }
+        else pp = &k->succ;
+    }
+    ReleaseSRWLockExclusive(&reg_kinfo_lock);
+}
+
+/* Descrizione vuota (nessun argomento da completare), per neutralizzare un'associazione vecchia. */
+static reg_kinfo reg_kinfo_vuoto = { NULL, NULL, NULL, 0, NULL, 0, 0, NULL, NULL };
+
+/* Dopo hipModuleGetFunction: ricorda quali funzioni vanno completate al lancio.
+ * L'associazione si aggiorna SEMPRE: dopo hipModuleUnload il driver puo' dare a una funzione di un
+ * modulo nuovo lo stesso indirizzo di una vecchia, e la voce vecchia darebbe al lancio il completamento
+ * sbagliato (o nessuno). Una funzione senza descrizione riceve quella vuota. */
 static void reg_associa(void* f, void* modulo, const char* nome) {
     reg_kinfo* ki;
     reg_fun_info* fi;
-    if (!f || !nome || !reg_kinfo_lista) return;
-    ki = reg_kinfo_trova(modulo, nome);
-    if (!ki || reg_trova(&reg_fun_infos, f)) return;
+    if (!f || !nome) return;
+    ki = reg_kinfo_lista ? reg_kinfo_trova(modulo, nome) : NULL;
+    fi = (reg_fun_info*)reg_trova(&reg_fun_infos, f);
+    if (fi) {                                   /* indirizzo gia' visto: aggiorna */
+        InterlockedExchangePointer((void* volatile*)&fi->info, ki ? ki : &reg_kinfo_vuoto);
+        return;
+    }
+    if (!ki || !ki->ha_l) return;               /* niente da completare: nessuna voce */
     fi = (reg_fun_info*)calloc(1, sizeof(reg_fun_info));
     if (!fi) return;
     fi->f = f; fi->info = ki;
@@ -631,6 +656,7 @@ __declspec(dllexport) void __hipUnregisterFatBinary(void** moduli) {
     AcquireSRWLockExclusive(&fb->lock);
     if (fb->stato == 1 && fb->modulo && g_amdhip64) {
         reg_f_unload scarica = (reg_f_unload)GetProcAddress(g_amdhip64, "hipModuleUnload");
+        reg_stacca_modulo(fb->modulo);
         if (scarica) scarica(fb->modulo);
     }
     fb->modulo = NULL;
