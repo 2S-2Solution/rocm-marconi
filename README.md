@@ -18,7 +18,7 @@ Questo repository contiene i **sorgenti** del kit:
 
 | cartella | contenuto |
 |---|---|
-| `runtime/src/shim_main.c`, `runtime/build_shim.cmd` | lo shim **`amdhip64_7_shim.dll`** (installato anche come `amdhip64_7.dll`): **484 export**, cioè **474 API `hip*`**, 6 funzioni interne del compilatore (`__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipRegisterVar`, `__hipUnregisterFatBinary`, `__hipPushCallConfiguration`, `__hipPopCallConfiguration`) e 4 funzioni diagnostiche `marconi_57exp_*`. Le 474 API coprono **428/428** funzioni della runtime 5.7 e **469/469** dell'unione ROCm 6.1+6.2+6.4+7.1 |
+| `runtime/src/shim_main.c`, `runtime/build_shim.cmd` | lo shim **`amdhip64_7_shim.dll`** (installato anche come `amdhip64_7.dll`): **557 export**, cioè **553 API `hip*`/`__hip*`** e 4 funzioni diagnostiche `marconi_57exp_*`. Le API coprono **428/428** funzioni della runtime 5.7, l'unione ROCm 6.1+6.2+6.4+7.1 e, dal 13 novembre 2026, le famiglie di HIP 7 che la runtime 5.7 non ha: moduli e librerie (`hipLibrary*`, `hipKernel*`, `hipModuleGetFunctionCount`), link JIT (`hipLink*`), copie da/verso array e fra dispositivi, nodi di grafo generici (`hipGraphAddNode`), operazioni a lotti sugli stream e contesti "green" (`hipGreenCtxCreate`, `hipExecutionCtx*`). Le funzioni interne del compilatore (`__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipRegisterVar`, `__hipRegisterManagedVar`, …) sono comprese nel conto |
 | `include/hip-extensions/` | intestazioni per le API HIP moderne (`hipMallocAsync`, `hipGraph*`, cattura di stream) e la macro `HAVE_HIP_MARCONI_57EXP` |
 | `tensile/` | strumenti della macchina di sviluppo per la libreria Tensile/rocBLAS gfx906 dell'HIP SDK: correzione degli indici e instradamento delle forme reali ai kernel più veloci misurati (`override/*.csv`). Il pacchetto delle Releases porta già la libreria corretta e **non li richiede** |
 | `strumenti/` | sei script Python: audit della libreria Tensile (`audit_coerenza.py`, `audit_ldl.py`), versione e modalità sramecc/xnack dei code object rispetto a ciò che il driver carica (`code_object_tensile.py`), instradamento delle forme (`instrada_shape.py`), misura delle soluzioni rocBLAS di una GEMM (`misura_soluzioni_gemm.py`), confronto degli export HIP fra versioni ROCm (`confronto_versioni_hip.py`) |
@@ -46,11 +46,15 @@ ogni file. MIOpen non fa parte del kit: è nel pacchetto
   non registrati, per esempio la memoria di un tensore CPU di PyTorch (`is_pinned()` terminava il
   processo). Lo shim chiede prima a `hipPointerGetAttributes`, che su quei puntatori risponde senza
   cadere, e per la memoria non HIP restituisce il tipo «non registrato».
-- **35 funzioni** sono implementate dentro lo shim (elenco in
-  [FUNZIONI_473.md](docs/FUNZIONI_473.md), stato «OK propria»): fra queste `hipGetProcAddress`,
-  `hipSetValidDevices`, `hipDrvLaunchKernelEx`, `hipGraphAddNode_v2`,
-  `hipGetDevicePropertiesR0600` e, dal 12 nov 2026, le 25 che servono al codice compilato con
-  ROCm 7 e 10 (vedi il punto seguente).
+- **Oltre 150 funzioni** sono implementate o tradotte dentro lo shim (elenco in
+  [FUNZIONI_473.md](docs/FUNZIONI_473.md), stato «OK propria» o «OK tradotta»): fra queste
+  `hipGetProcAddress`, `hipSetValidDevices`, `hipDrvLaunchKernelEx`, `hipGetDevicePropertiesR0600`,
+  le registrazioni dei kernel per il codice ROCm 7 e 10, e dal 13 nov 2026 le API HIP 7 di moduli,
+  librerie, kernel, link JIT, copie array/peer, nodi di grafo generici, batch-mem-op e green context.
+- **Lanci corretti nei prototipi (13 nov 2026):** `hipExtModuleLaunchKernel` (14 argomenti) e
+  `hipHccModuleLaunchKernel` (13) hanno ora il prototipo esplicito: prima erano inoltrati con la
+  macro a 9 argomenti e funzionavano solo perché il compilatore ne faceva un salto in coda. Corretti
+  anche due codici d'errore (`hipErrorInvalidValue` era 7, `hipErrorInvalidSymbol` era 701).
 - **Codice compilato con ROCm 7 e 10** (dal 12 nov 2026, `runtime/src/registrazione.inc`): la
   registrazione dei kernel incorporati (`__hipRegisterFatBinary` e simili, `<<<...>>>`) è tenuta
   dallo shim; il codice si carica al primo uso dai bundle clang (anche compressi con zstd) e dai
@@ -96,7 +100,8 @@ Il kit è la base di altri componenti 2S, ciascuno nel proprio repository:
 | verifica | esito |
 |---|---|
 | copertura export runtime 5.7 | 428 / 428 |
-| copertura unione ROCm 6.1–7.1 | 469 / 469 (474 API `hip*`, 484 export in tutto) |
+| copertura unione ROCm 6.1–7.1 | 469 / 469 (553 API `hip*`/`__hip*`, 557 export in tutto) |
+| famiglie HIP 7 aggiunte (13 nov 2026) | moduli, librerie, kernel, link JIT, copie array/peer, nodi-grafo generici, batch-mem-op, green context |
 | PyTorch 2.15 delle wheel AMD (ROCm 10.1, HIP 7.16) sulla Radeon VII | 12 / 12 prove contro la CPU in fp64: elementari e riduzioni (kpack), rocBLAS fp32/fp16, MIOpen (conv in avanti), addestramento, rocRAND, rocSOLVER, rocFFT. ⚠️ La MIOpen 10.1 della wheel ha ancora il difetto del gradiente dei pesi `ConvAsmBwdWrW3x3` (conv 3x3 a 3 canali: scarto relativo 3,5): impostare `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` e `MIOPEN_DEBUG_CONV_IMPLICIT_GEMM_ASM_WRW_V4R1=0` (scarto 2,6e-7), oppure usare la MIOpen corretta di [miopen-gfx906](https://github.com/2s-2solution/miopen-gfx906) |
 | programma compilato con hipcc 7.16 (`<<<...>>>`, `__constant__`, `__device__`, template, attributi, eventi) | OK |
 | catena di caricamento con `MIOpen.dll` | 8 DLL su 8 |
@@ -203,10 +208,12 @@ training, rocRAND, rocSOLVER, rocFFT). The wheel's MIOpen 10.1 still has the `Co
 weight-gradient defect: set `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` and
 `MIOPEN_DEBUG_CONV_IMPLICIT_GEMM_ASM_WRW_V4R1=0`, or use the fixed MIOpen of miopen-gfx906.
 
-**Contents:** the `amdhip64_7_shim.dll` shim (484 exports: 474 `hip*` APIs, 6 internal
-`__hip*` compiler entry points and 4 diagnostic `marconi_57exp_*` functions; 428/428 runtime
-5.7 functions forwarded, 469/469 of the ROCm 6.1–7.1 API union exposed; 35 implemented in the
-shim, 35 returning an explicit `hipErrorNotSupported`, plus a null-stream bridge for
+**Contents:** the `amdhip64_7_shim.dll` shim (557 exports: 553 `hip*`/`__hip*` APIs and 4
+diagnostic `marconi_57exp_*` functions; 428/428 runtime 5.7 functions forwarded, the ROCm
+6.1–7.1 API union exposed; over 150 implemented or translated in the shim — including, since
+13 Nov 2026, the HIP 7 families the 5.7 runtime lacks: modules and libraries, kernels, JIT
+linking, array/peer copies, generic graph nodes, stream batch mem-ops and green contexts —
+and 23 returning an explicit `hipErrorNotSupported`, plus a null-stream bridge for
 `hipStreamWaitEvent`). `hipGetDevicePropertiesR0600` returns fixed Radeon VII values
 (including compute capability 7.0) for any device, without querying the driver. Also:
 headers for modern HIP APIs, Tensile/rocBLAS library tools (index fixes, shape routing,

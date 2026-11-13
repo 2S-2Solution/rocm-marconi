@@ -7,9 +7,10 @@
 >   di sviluppo, invece, la v2 è stata installata proprio in Program Files (vedi sotto);
 > - gli indici dell'instradamento sono stati corretti il 20 ottobre 2026 (erano spostati di
 >   uno: vedi `strumenti/instrada_shape.py`);
-> - lo shim oggi (12 nov 2026) ha **484 export**: 474 API `hip*`, 6 interne `__hip*`, 4 `marconi_57exp_*`;
->   la registrazione dei kernel (`__hipRegisterFatBinary` e simili) non è più vuota: vedi il README
->   e `docs/FUNZIONI_473.md`;
+> - lo shim oggi (13 nov 2026) ha **557 export**: 553 API `hip*`/`__hip*`, 4 `marconi_57exp_*`;
+>   la registrazione dei kernel (`__hipRegisterFatBinary` e simili) non è più vuota, e dal 13 nov
+>   sono coperte anche le famiglie HIP 7 di moduli, librerie, link JIT, copie array/peer, nodi-grafo
+>   generici, batch-mem-op e green context: vedi il README e `docs/FUNZIONI_473.md`;
 > - gli script citati in «Installazione» (`installa_v2.cmd`, `ripristina_v2.cmd`) non fanno parte del
 >   repository; due voci su moduli PyTorch che il documento originale aveva in «Cosa resta
 >   aperto» sono state tolte, perché non riguardano il kit.

@@ -508,12 +508,32 @@ Le 10 funzioni che passano quei tipi ora traducono. Prima un programma compilato
 `hipDrvPointerGetAttributes(MEMORY_TYPE)` cade su alcuni puntatori host non registrati, per esempio
 la memoria di un tensore CPU di PyTorch.
 
-Oltre alle 474 API, lo shim esporta 10 simboli: le 6 funzioni interne del compilatore
-`__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipRegisterVar`, `__hipUnregisterFatBinary`
-(implementate nello shim, vedi sotto), `__hipPushCallConfiguration`, `__hipPopCallConfiguration`
-(inoltrate alla runtime v5.7) e 4 funzioni diagnostiche `marconi_57exp_get_version`,
-`marconi_57exp_get_device_count`, `marconi_57exp_count_exported_symbols`,
-`marconi_57exp_count_resolved_pfns`. Totale export della DLL: **484**.
+Oltre alle API `hip*`, lo shim esporta le funzioni interne del compilatore
+`__hipRegisterFatBinary`, `__hipRegisterFunction`, `__hipRegisterVar`, `__hipRegisterManagedVar`,
+`__hipRegisterSurface`, `__hipRegisterTexture`, `__hipOnError`, `__hipUnregisterFatBinary`
+(implementate nello shim), `__hipPushCallConfiguration`, `__hipPopCallConfiguration`
+(inoltrate alla runtime v5.7) e 4 funzioni diagnostiche `marconi_57exp_*`.
+
+## Famiglie HIP 7 aggiunte il 13 novembre 2026
+
+La runtime 5.7 non ha queste famiglie; lo shim le costruisce sui suoi mattoni (file
+`runtime/src/api7*.inc`). Export della DLL salito da 484 a **557**.
+
+| famiglia | funzioni | come |
+|---|---|---|
+| lanci corretti | `hipExtModuleLaunchKernel` (14 arg), `hipHccModuleLaunchKernel` (13), `hipTexRefSetMipmapLevelBias/Clamp` (float) | prototipo esplicito invece della macro a 9 argomenti; `hipDrvLaunchKernelEx` nuova |
+| ricerche e stream | `hipLaunchKernelExC`, `hipGetFuncBySymbol`, `hipGetDriverEntryPoint(_spt)`, `hipStreamGetId`, `hipStreamGet/Set/CopyAttributes`, `hipMemsetD2D8/16/32(Async)`, `hipGetDevicePropertiesR0000`, `hipChooseDeviceR0000/R0600`, `hipDeviceGetTexture1DLinearMaxWidth`, occupazione | sulle primitive 5.7 |
+| moduli e librerie | `hipModuleGetFunctionCount`, `hipModuleLoadFatBinary`, `hipLibrary*`, `hipKernel*`, `hipLink*` | involucro sull'API a moduli 5.7; link JIT su hipRTC 5.7 |
+| copie | `hipMemcpyAtoD/DtoA/AtoA`, `hipMemcpy2DArrayToArray`, `hipMemcpy3DPeer(Async)` | buffer host per gli array; copia 3D per il «peer» su una GPU |
+| grafi | `hipGraphAddNode`, `hipGraphNodeSetParams`, `hipGraphExecNodeSetParams`, `hipStreamBatchMemOp` | nodi generici tradotti nei nodi tipizzati 5.7; i nodi-kernel tradotti come i lanci |
+| green context | `hipGreenCtxCreate`, `hipExecutionCtx*`, `hipDeviceGetDevResource`, `hipDevSmResourceSplit(ByCount)`, `hipDevResourceGenerateDesc`, `hipStreamGetDevResource` | maschera di CU (`hipExtStreamCreateWithCUMask`) |
+| completamento | `hipMemGet/SetMemPool`, `hipMemAdvise_v2`, `hipMemPrefetchAsync_v2`, `hipMemcpyBatchAsync`, `hipDeviceGetLuid`, logging/profiler | mappate o stub diagnostici |
+
+**Limiti noti (restano `hipErrorNotSupported`):** nodi di grafo avanzati (semafori esterni, batch-mem-op,
+API driver dei grafi, cattura verso grafo, istanziazione con parametri), `hipMemcpy3DBatchAsync` e mipmap
+da memoria esterna, perché la 5.7 non ha le primitive corrispondenti. Le operazioni di memoria sugli
+stream (`hipStreamWaitValue`) non sono supportate dal driver su gfx906/Windows: la scrittura usa
+`hipMemsetD32Async`, l'attesa di un valore è vuota su stream in ordine.
 
 ## Codice compilato con ROCm 7 e 10 (12 nov 2026)
 
