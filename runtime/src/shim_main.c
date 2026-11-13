@@ -849,6 +849,7 @@ __declspec(dllexport) int hipDrvGraphAddMemcpyNode(void* node, void* graph, void
 #include "api7_mem.inc"
 #include "api7_graph.inc"
 #include "api7_green.inc"
+#include "api7_misc.inc"
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     (void)hinst; (void)reserved;
