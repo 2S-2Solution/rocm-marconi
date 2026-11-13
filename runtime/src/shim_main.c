@@ -846,6 +846,9 @@ __declspec(dllexport) int hipDrvGraphAddMemcpyNode(void* node, void* graph, void
 #include "registrazione.inc"
 #include "api7.inc"
 #include "api7_mod.inc"
+#include "api7_mem.inc"
+#include "api7_graph.inc"
+#include "api7_green.inc"
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     (void)hinst; (void)reserved;
@@ -1224,9 +1227,9 @@ __declspec(dllexport) int hipMemcpyHtoAAsync(void* dst_array, size_t offset,
 /* hipChooseDeviceR0600: implementata in api7.inc */
 /* hipGetDevicePropertiesR0000: implementata in api7.inc */
 /* nodi grafo generici: richiedono hipGraphNodeParams, struct non nota alla 5.7 */
-NONSUP(hipGraphAddNode)
-NONSUP(hipGraphNodeSetParams)
-NONSUP(hipGraphExecNodeSetParams)
+/* hipGraphAddNode: implementata in api7_graph.inc */
+/* hipGraphNodeSetParams: implementata in api7_graph.inc */
+/* hipGraphExecNodeSetParams: implementata in api7_graph.inc */
 NONSUP(hipGraphInstantiateWithParams)
 NONSUP(hipGraphExecGetFlags)
 NONSUP(hipStreamBeginCaptureToGraph)
@@ -1240,7 +1243,7 @@ NONSUP(hipGraphExternalSemaphoresSignalNodeSetParams)
 NONSUP(hipGraphExternalSemaphoresWaitNodeGetParams)
 NONSUP(hipGraphExternalSemaphoresWaitNodeSetParams)
 /* batch mem-op */
-NONSUP(hipStreamBatchMemOp)
+/* hipStreamBatchMemOp: implementata in api7_graph.inc */
 NONSUP(hipGraphAddBatchMemOpNode)
 NONSUP(hipGraphBatchMemOpNodeGetParams)
 NONSUP(hipGraphBatchMemOpNodeSetParams)
@@ -1253,10 +1256,10 @@ NONSUP(hipDrvGraphExecMemsetNodeSetParams)
 NONSUP(hipDrvGraphMemcpyNodeGetParams)
 NONSUP(hipDrvGraphMemcpyNodeSetParams)
 /* copie fra array (servono descrittori di array non esposti dalla 5.7) */
-NONSUP(hipMemcpy2DArrayToArray)
-NONSUP(hipMemcpyAtoA)
-NONSUP(hipMemcpyAtoD)
-NONSUP(hipMemcpyDtoA)
+/* hipMemcpy2DArrayToArray: implementata in api7_mem.inc */
+/* hipMemcpyAtoA: implementata in api7_mem.inc */
+/* hipMemcpyAtoD: implementata in api7_mem.inc */
+/* hipMemcpyDtoA: implementata in api7_mem.inc */
 /* varie */
 /* hipGetFuncBySymbol: implementata in api7.inc */
 NONSUP(hipExternalMemoryGetMappedMipmappedArray)
