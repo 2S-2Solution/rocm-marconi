@@ -52,7 +52,7 @@ if %RC% EQU 0 (
     echo.
     echo === Export ===
     dumpbin /nologo /exports amdhip64_7_shim.dll | "%SystemRoot%\System32\findstr.exe" /R /C:" hip" /C:" __hip" /C:" marconi_" | "%SystemRoot%\System32\find.exe" /c /v ""
-    echo export hip e marconi contati qui sopra: attesi 501
+    echo export hip e marconi contati qui sopra: attesi 522
 ) else (
     echo *** BUILD FAIL RC=%RC% ***
 )

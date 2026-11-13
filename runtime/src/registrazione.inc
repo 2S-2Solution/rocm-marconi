@@ -193,20 +193,18 @@ typedef int (*cg_f_release)(reg_cg d);
 
 /* Per ogni kernel con argomenti da completare: tipo per argomento, nell'ordine dei metadati.
  * 'e' esplicito (dal chiamante), 'l' hidden_dynamic_lds_size (lo aggiunge lo shim), 'h' altro nascosto. */
-typedef struct reg_kinfo { struct reg_kinfo* succ; void* modulo; char* nome; int n; char* tipi; int espliciti; } reg_kinfo;
+/* Un kernel di un modulo caricato: tipi degli argomenti (per il completamento al lancio), e offset e
+ * dimensione di ciascuno (per hipKernelGetParamInfo). ha_l != 0 se c'e' hidden_dynamic_lds_size. Dal
+ * 13 nov 2026 si registra OGNI kernel del modulo, non solo quelli con 'l', cosi' le API a libreria
+ * (hipModuleGetFunctionCount, hipLibrary e hipKernel) hanno l'elenco completo. */
+typedef struct reg_kinfo { struct reg_kinfo* succ; void* modulo; char* nome; int n; char* tipi; int espliciti;
+                           int ha_l; size_t* off; size_t* sz; } reg_kinfo;
 static reg_kinfo* reg_kinfo_lista = NULL;
 static SRWLOCK reg_kinfo_lock = SRWLOCK_INIT;
 
 typedef struct { const void* f; reg_kinfo* info; } reg_fun_info;
 static reg_tabella reg_fun_infos = { NULL, 0, 0, SRWLOCK_INIT };
 
-static void* reg_memmem(const unsigned char* a, size_t na, const char* b, size_t nb) {
-    size_t k;
-    if (nb == 0 || na < nb) return NULL;
-    for (k = 0; k + nb <= na; k++)
-        if (a[k] == (unsigned char)b[0] && memcmp(a + k, b, nb) == 0) return (void*)(a + k);
-    return NULL;
-}
 
 static int reg_cg_stringa(cg_f_string str, reg_cg n, char* buf, size_t dim) {
     size_t d = 0;
@@ -214,7 +212,10 @@ static int reg_cg_stringa(cg_f_string str, reg_cg n, char* buf, size_t dim) {
     return str(n, &d, buf) == 0;
 }
 
-/* Legge gli argomenti dei kernel del modulo appena caricato; registra solo quelli con 'l'. */
+/* Legge i kernel del modulo appena caricato e li registra tutti (nome, tipi degli argomenti, offset e
+ * dimensione di ciascuno). Serve sia al completamento di hidden_dynamic_lds_size al lancio, sia alle API
+ * a libreria (hipModuleGetFunctionCount, hipLibrary e hipKernel). Legge sempre i metadati, non solo
+ * quando c'e' LDS dinamica (prima era un'ottimizzazione): i moduli si caricano poche volte. */
 static void reg_leggi_argomenti(void* modulo, const unsigned char* elf, size_t dim) {
     static const char DYN[] = "hidden_dynamic_lds_size";
     cg_f_create crea; cg_f_set imposta; cg_f_getmd getmd; cg_f_lookup cerca; cg_f_listsize quanti;
@@ -222,7 +223,8 @@ static void reg_leggi_argomenti(void* modulo, const unsigned char* elf, size_t d
     reg_cg dati = { 0 }, md = { 0 }, kernels = { 0 };
     size_t nk = 0, k;
     int trovati = 0;
-    if (!g_comgr_driver || !reg_memmem(elf, dim, DYN, sizeof(DYN) - 1)) return;
+    (void)dim;
+    if (!g_comgr_driver) return;
     crea = (cg_f_create)GetProcAddress(g_comgr_driver, "amd_comgr_create_data");
     imposta = (cg_f_set)GetProcAddress(g_comgr_driver, "amd_comgr_set_data");
     getmd = (cg_f_getmd)GetProcAddress(g_comgr_driver, "amd_comgr_get_data_metadata");
@@ -245,9 +247,12 @@ static void reg_leggi_argomenti(void* modulo, const unsigned char* elf, size_t d
                 if (cerca(kn, ".name", &nome) == 0 && reg_cg_stringa(str, nome, nm, sizeof(nm)) &&
                     cerca(kn, ".args", &args) == 0 && quanti(args, &na) == 0 && na > 0 && na < 4096) {
                     char* tipi = (char*)malloc(na);
+                    size_t* off = (size_t*)calloc(na, sizeof(size_t));
+                    size_t* sz = (size_t*)calloc(na, sizeof(size_t));
                     int conta_l = 0, espliciti = 0;
-                    for (a = 0; tipi && a < na; a++) {
+                    for (a = 0; tipi && off && sz && a < na; a++) {
                         reg_cg ar = { 0 }, v = { 0 };
+                        char num[32];
                         tipi[a] = 'e';
                         if (indice(args, a, &ar) != 0) continue;
                         if (cerca(ar, ".value_kind", &v) == 0) {
@@ -257,21 +262,25 @@ static void reg_leggi_argomenti(void* modulo, const unsigned char* elf, size_t d
                             }
                             distruggi(v);
                         }
+                        v.h = 0;
+                        if (cerca(ar, ".offset", &v) == 0) { if (reg_cg_stringa(str, v, num, sizeof(num))) off[a] = (size_t)_strtoui64(num, NULL, 10); distruggi(v); }
+                        v.h = 0;
+                        if (cerca(ar, ".size", &v) == 0) { if (reg_cg_stringa(str, v, num, sizeof(num))) sz[a] = (size_t)_strtoui64(num, NULL, 10); distruggi(v); }
                         if (tipi[a] == 'e') espliciti++;
                         distruggi(ar);
                     }
-                    if (tipi && conta_l) {
+                    if (tipi && off && sz) {
                         reg_kinfo* ki = (reg_kinfo*)calloc(1, sizeof(reg_kinfo));
                         if (ki) {
                             ki->modulo = modulo; ki->nome = reg_copia(nm); ki->n = (int)na; ki->tipi = tipi;
-                            ki->espliciti = espliciti;
+                            ki->espliciti = espliciti; ki->ha_l = conta_l; ki->off = off; ki->sz = sz;
                             AcquireSRWLockExclusive(&reg_kinfo_lock);
                             ki->succ = reg_kinfo_lista; reg_kinfo_lista = ki;
                             ReleaseSRWLockExclusive(&reg_kinfo_lock);
-                            tipi = NULL; trovati++;
+                            tipi = NULL; off = NULL; sz = NULL; trovati++;
                         }
                     }
-                    free(tipi);
+                    free(tipi); free(off); free(sz);
                 }
                 if (args.h) distruggi(args);
                 if (nome.h) distruggi(nome);
@@ -320,7 +329,7 @@ static void** reg_completa(void* f, void** arg, unsigned int* lds, void** locale
     reg_fun_info* fi = arg && reg_fun_infos.n ? (reg_fun_info*)reg_trova(&reg_fun_infos, f) : NULL;
     void** completo;
     int a, i = 0, j = 0;
-    if (!fi) return arg;
+    if (!fi || !fi->info->ha_l) return arg;   /* nessun hidden_dynamic_lds_size: l'array del chiamante va bene */
     completo = fi->info->n <= 64 ? locale : (void**)malloc(sizeof(void*) * (size_t)fi->info->n);
     if (!completo) return NULL;
     for (a = 0; a < fi->info->n; a++) {

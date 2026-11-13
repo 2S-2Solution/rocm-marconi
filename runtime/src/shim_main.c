@@ -497,7 +497,7 @@ static void conv_v57_to_R0600(const hipDeviceProp_v57* src, hipDeviceProp_R0600*
 FWD9(hipTexRefSetFormat)
 FWD9(hipStreamCreateWithFlags)
 FWD9(hipDeviceGetUuid)
-FWD9(hipModuleUnload)
+/* FWD9(hipModuleUnload): in api7_mod.inc (toglie i kernel del modulo dalla lista) */
 FWD9(hipGetDeviceCount)
 FWD9(hipDeviceGetAttribute)
 /* FWD9(hipModuleLoadData): vedi registrazione.inc */
@@ -845,6 +845,7 @@ __declspec(dllexport) int hipDrvGraphAddMemcpyNode(void* node, void* graph, void
 #include "abi57.inc"
 #include "registrazione.inc"
 #include "api7.inc"
+#include "api7_mod.inc"
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     (void)hinst; (void)reserved;
