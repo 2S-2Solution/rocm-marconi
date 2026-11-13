@@ -529,6 +529,15 @@ La runtime 5.7 non ha queste famiglie; lo shim le costruisce sui suoi mattoni (f
 | green context | `hipGreenCtxCreate`, `hipExecutionCtx*`, `hipDeviceGetDevResource`, `hipDevSmResourceSplit(ByCount)`, `hipDevResourceGenerateDesc`, `hipStreamGetDevResource` | maschera di CU (`hipExtStreamCreateWithCUMask`) |
 | completamento | `hipMemGet/SetMemPool`, `hipMemAdvise_v2`, `hipMemPrefetchAsync_v2`, `hipMemcpyBatchAsync`, `hipDeviceGetLuid`, logging/profiler | mappate o stub diagnostici |
 
+**Scaricamento dei moduli (correzione della revisione, 13 nov 2026):** il driver riusa gli indirizzi delle
+funzioni quando si scarica e ricarica un modulo (misurato: 27 indirizzi distinti su 30 cicli). Lo shim non
+libera piu' le descrizioni dei kernel di un modulo scaricato (le stacca soltanto) e aggiorna sempre
+l'associazione funzione -> argomenti da completare, cosi' un kernel nuovo a un indirizzo riusato riceve il
+completamento giusto di `hidden_dynamic_lds_size`.
+
+**`__hipRegisterManagedVar`:** esportata perche' il codice compilato la chiama, ma le variabili `__managed__`
+statiche non vengono allocate: il loro puntatore resta vuoto. Sono rare nel codice di calcolo.
+
 **Limiti noti (restano `hipErrorNotSupported`):** nodi di grafo avanzati (semafori esterni, batch-mem-op,
 API driver dei grafi, cattura verso grafo, istanziazione con parametri), `hipMemcpy3DBatchAsync` e mipmap
 da memoria esterna, perché la 5.7 non ha le primitive corrispondenti. Le operazioni di memoria sugli
