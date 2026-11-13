@@ -21,7 +21,7 @@
 #define REG_HIPK 0x4B504948u   /* "HIPK" */
 #define hipErrorInvalidDeviceFunction 98
 #define hipErrorNoBinaryForGpu        209
-#define hipErrorInvalidSymbol         701
+#define hipErrorInvalidSymbol         13   /* era 701 (hipErrorLaunchOutOfResources) fino al 13 nov 2026 */
 #define hipErrorInvalidImage          200
 
 typedef struct { unsigned int x, y, z; } reg_dim3;
@@ -313,15 +313,34 @@ typedef int (*reg_f_lancio_mod)(void* f, unsigned int gx, unsigned int gy, unsig
 typedef int (*reg_f_lancio_coop)(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx,
                                  unsigned int by, unsigned int bz, unsigned int shm, void* stream, void** arg);
 
+/* Array degli argomenti completato per la 5.7: agli espliciti del chiamante si aggiunge, dove il kernel
+ * lo dichiara, il puntatore a hidden_dynamic_lds_size (*lds). Restituisce arg se non serve nulla, locale
+ * (64 voci) o un blocco allocato (da liberare con reg_completo_libera); NULL se manca memoria. */
+static void** reg_completa(void* f, void** arg, unsigned int* lds, void** locale) {
+    reg_fun_info* fi = arg && reg_fun_infos.n ? (reg_fun_info*)reg_trova(&reg_fun_infos, f) : NULL;
+    void** completo;
+    int a, i = 0, j = 0;
+    if (!fi) return arg;
+    completo = fi->info->n <= 64 ? locale : (void**)malloc(sizeof(void*) * (size_t)fi->info->n);
+    if (!completo) return NULL;
+    for (a = 0; a < fi->info->n; a++) {
+        if (fi->info->tipi[a] == 'e') completo[j++] = arg[i++];
+        else if (fi->info->tipi[a] == 'l') completo[j++] = lds;
+    }
+    return completo;
+}
+static void reg_completo_libera(void** completo, void** arg, void** locale) {
+    if (completo != arg && completo != locale) free(completo);
+}
+
 /* hipModuleLaunchKernel (o hipModuleLaunchCooperativeKernel, coop = 1) della 5.7, con l'array degli
  * argomenti completato se il kernel lo richiede. */
 static int reg_lancia_x(int coop, void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx,
                         unsigned int by, unsigned int bz, unsigned int shm, void* stream, void** arg, void** extra) {
     static reg_f_lancio_mod lancio = NULL;
     static reg_f_lancio_coop lancio_coop = NULL;
-    reg_fun_info* fi;
     void* locale[64];
-    void** completo = arg;
+    void** completo;
     unsigned int lds = shm;
     int rc;
     if (coop) {
@@ -329,19 +348,11 @@ static int reg_lancia_x(int coop, void* f, unsigned int gx, unsigned int gy, uns
     } else {
         if (!lancio) { lancio = (reg_f_lancio_mod)abi57_reale("hipModuleLaunchKernel"); if (!lancio) return hipErrorNotSupported; }
     }
-    fi = arg && reg_fun_infos.n ? (reg_fun_info*)reg_trova(&reg_fun_infos, f) : NULL;
-    if (fi) {
-        int a, i = 0, j = 0;
-        completo = fi->info->n <= 64 ? locale : (void**)malloc(sizeof(void*) * (size_t)fi->info->n);
-        if (!completo) return hipErrorOutOfMemory;
-        for (a = 0; a < fi->info->n; a++) {
-            if (fi->info->tipi[a] == 'e') completo[j++] = arg[i++];
-            else if (fi->info->tipi[a] == 'l') completo[j++] = &lds;
-        }
-    }
+    completo = reg_completa(f, arg, &lds, locale);
+    if (arg && !completo) return hipErrorOutOfMemory;
     rc = coop ? lancio_coop(f, gx, gy, gz, bx, by, bz, shm, stream, completo)
               : lancio(f, gx, gy, gz, bx, by, bz, shm, stream, completo, extra);
-    if (completo != arg && completo != locale) free(completo);
+    reg_completo_libera(completo, arg, locale);
     return rc;
 }
 
@@ -659,6 +670,106 @@ __declspec(dllexport) int hipModuleLaunchCooperativeKernel(void* f, unsigned int
                                                            unsigned int bx, unsigned int by, unsigned int bz,
                                                            unsigned int shm, void* stream, void** arg) {
     return reg_lancia_x(1, f, gx, gy, gz, bx, by, bz, shm, stream, arg, NULL);
+}
+
+/* hipExtModuleLaunchKernel (14 argomenti) e hipHccModuleLaunchKernel (13): prima erano inoltrati con la
+ * macro a 9 argomenti e funzionavano solo perche' clang a /O2 ne faceva un salto in coda (jmp), che riusa
+ * la pila del chiamante. Ora hanno il prototipo vero e l'array degli argomenti completato come gli altri
+ * lanci. Le dimensioni sono in thread (globalWorkSize = griglia * blocco), come vuole la 5.7. */
+typedef int (*reg_f_extmod)(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int lx,
+                            unsigned int ly, unsigned int lz, size_t shm, void* stream, void** arg, void** extra,
+                            void* ev0, void* ev1, unsigned int flag);
+typedef int (*reg_f_hccmod)(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int lx,
+                            unsigned int ly, unsigned int lz, size_t shm, void* stream, void** arg, void** extra,
+                            void* ev0, void* ev1);
+__declspec(dllexport) int hipExtModuleLaunchKernel(void* f, unsigned int gx, unsigned int gy, unsigned int gz,
+                                                   unsigned int lx, unsigned int ly, unsigned int lz, size_t shm,
+                                                   void* stream, void** arg, void** extra, void* ev0, void* ev1,
+                                                   unsigned int flag) {
+    void* locale[64];
+    void** completo;
+    unsigned int lds = (unsigned int)shm;
+    int rc;
+    ABI57_REALE(reale, reg_f_extmod, "hipExtModuleLaunchKernel");
+    completo = reg_completa(f, arg, &lds, locale);
+    if (arg && !completo) return hipErrorOutOfMemory;
+    rc = reale(f, gx, gy, gz, lx, ly, lz, shm, stream, completo, extra, ev0, ev1, flag);
+    reg_completo_libera(completo, arg, locale);
+    return rc;
+}
+
+__declspec(dllexport) int hipHccModuleLaunchKernel(void* f, unsigned int gx, unsigned int gy, unsigned int gz,
+                                                   unsigned int lx, unsigned int ly, unsigned int lz, size_t shm,
+                                                   void* stream, void** arg, void** extra, void* ev0, void* ev1) {
+    void* locale[64];
+    void** completo;
+    unsigned int lds = (unsigned int)shm;
+    int rc;
+    ABI57_REALE(reale, reg_f_hccmod, "hipHccModuleLaunchKernel");
+    completo = reg_completa(f, arg, &lds, locale);
+    if (arg && !completo) return hipErrorOutOfMemory;
+    rc = reale(f, gx, gy, gz, lx, ly, lz, shm, stream, completo, extra, ev0, ev1);
+    reg_completo_libera(completo, arg, locale);
+    return rc;
+}
+
+/* hipDrvLaunchKernelEx (HIP 7, assente nella 5.7): lancio con una configurazione e una lista di attributi.
+ * Disposizioni misurate sugli header 7.16: HIP_LAUNCH_CONFIG 56 byte, hipLaunchAttribute 72 (id a 0,
+ * valore a 8). Attributi: Cooperative (2) -> lancio cooperativo; AccessPolicyWindow (1), Priority (8),
+ * SynchronizationPolicy (3), MemSyncDomainMap/MemSyncDomain (9, 10), ClusterSchedulingPolicy (5),
+ * ExtDynDataPrefetch (1024) e Ignore (0) sono suggerimenti senza effetto su gfx906. ClusterDimension (4):
+ * gfx906 non ha cluster in hardware e il compilatore non emette per gfx906 istruzioni di cluster, quindi
+ * un kernel gfx906 non puo' osservare il raggruppamento e il lancio si esegue normale; si controlla solo
+ * che la griglia sia multipla della dimensione del cluster (come CUDA). */
+typedef struct {
+    unsigned int gx, gy, gz, bx, by, bz, shm;
+    void* stream;
+    const unsigned char* attr;
+    unsigned int nattr;
+} reg_launch_config;
+#define REG_ATTR_DIM 72
+
+static int reg_leggi_attributi(const unsigned char* attr, unsigned int n, unsigned int gx, unsigned int gy,
+                               unsigned int gz, int* coop) {
+    unsigned int k;
+    *coop = 0;
+    if (n && !attr) return hipErrorInvalidValue;
+    for (k = 0; k < n; k++) {
+        const unsigned char* a = attr + (size_t)k * REG_ATTR_DIM;
+        int id = *(const int*)a;
+        const unsigned int* v = (const unsigned int*)(a + 8);
+        switch (id) {
+            case 0: case 1: case 3: case 5: case 8: case 9: case 10: case 1024: break;
+            case 2: *coop = v[0] != 0; break;
+            case 4:
+                if (!v[0] || !v[1] || !v[2] || gx % v[0] || gy % v[1] || gz % v[2]) return hipErrorInvalidValue;
+                break;
+            default: return hipErrorInvalidValue;
+        }
+    }
+    return hipSuccess;
+}
+
+__declspec(dllexport) int hipDrvLaunchKernelEx(const reg_launch_config* c, void* f, void** arg, void** extra) {
+    int coop, rc;
+    if (!c || !f) return hipErrorInvalidValue;
+    rc = reg_leggi_attributi(c->attr, c->nattr, c->gx, c->gy, c->gz, &coop);
+    if (rc != hipSuccess) return rc;
+    if (coop && extra) return hipErrorInvalidValue;
+    return reg_lancia_x(coop, f, c->gx, c->gy, c->gz, c->bx, c->by, c->bz, c->shm, c->stream, arg, extra);
+}
+
+/* hipTexRefSetMipmapLevelBias/Clamp: hanno float per valore, che su x64 viaggiano nei registri XMM; la
+ * macro generica (argomenti interi) li passava solo grazie al salto in coda. */
+typedef int (*reg_f_tex1f)(void* tex, float a);
+typedef int (*reg_f_tex2f)(void* tex, float a, float b);
+__declspec(dllexport) int hipTexRefSetMipmapLevelBias(void* tex, float bias) {
+    ABI57_REALE(reale, reg_f_tex1f, "hipTexRefSetMipmapLevelBias");
+    return reale(tex, bias);
+}
+__declspec(dllexport) int hipTexRefSetMipmapLevelClamp(void* tex, float minimo, float massimo) {
+    ABI57_REALE(reale, reg_f_tex2f, "hipTexRefSetMipmapLevelClamp");
+    return reale(tex, minimo, massimo);
 }
 
 /* hipExtLaunchKernel: come hipLaunchKernel, con eventi facoltativi registrati prima e dopo sullo stesso

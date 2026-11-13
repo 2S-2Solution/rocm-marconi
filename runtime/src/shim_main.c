@@ -23,7 +23,7 @@ typedef int hipError_t;
 #define hipSuccess              0
 #define hipErrorNotInitialized  3
 #define hipErrorDeinitialized   4   /* la runtime si sta chiudendo (cudaErrorCudartUnloading) */
-#define hipErrorInvalidValue    7
+#define hipErrorInvalidValue    1   /* era 7 (hipErrorProfilerAlreadyStarted) fino al 13 nov 2026 */
 #define hipErrorNotSupported    801
 
 /* Traccia diagnostica: solo nelle build compilate con /DREG_TRACCIA, scrive su stderr. */
@@ -577,7 +577,7 @@ FWD9(hipModuleOccupancyMaxPotentialBlockSize)
 /* FWD9(hipDrvPointerGetAttributes): tradotta, vedi abi57.inc */
 FWD9(hipStreamBeginCapture)
 FWD9(hipStreamCreateWithPriority)
-FWD9(hipStreamDestroy)
+/* FWD9(hipStreamDestroy): in api7.inc (dimentica attributi e id dello stream) */
 FWD9(hipStreamEndCapture)
 FWD9(hipStreamGetCaptureInfo_v2)
 /* [VEGA-PATCH stream-nullo, 17 ott 2026 - 2S]
@@ -636,8 +636,8 @@ FWD9(hipTexRefSetFlags)
 FWD9(hipThreadExchangeStreamCaptureMode)
 
 /* === v3.4 NUOVI forwarder per hipBLASLt 26 symbols (Vega T11:30 21 giu) === */
-FWD9(hipDrvLaunchKernelEx)
-FWD9(hipExtModuleLaunchKernel)
+/* FWD9(hipDrvLaunchKernelEx): assente nella 5.7, implementata in registrazione.inc */
+/* FWD9(hipExtModuleLaunchKernel): 14 argomenti, prototipo esplicito in registrazione.inc */
 
 /* === v3.7 NUOVI forwarder per MIOpen Marconi TheRock 7.14 (Vega T14:30 22 giu) ===
  * Diff dumpbin /imports MIOpen.dll vs shim v36 exports:
@@ -844,6 +844,7 @@ __declspec(dllexport) int hipDrvGraphAddMemcpyNode(void* node, void* graph, void
 #endif
 #include "abi57.inc"
 #include "registrazione.inc"
+#include "api7.inc"
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     (void)hinst; (void)reserved;
@@ -970,7 +971,7 @@ FWDP(hipGraphicsResourceGetMappedPointer)
 FWDP(hipGraphicsSubResourceGetMappedArray)
 FWDP(hipGraphicsUnmapResources)
 FWDP(hipGraphicsUnregisterResource)
-FWDP(hipHccModuleLaunchKernel)
+/* FWDP(hipHccModuleLaunchKernel): 13 argomenti, prototipo esplicito in registrazione.inc */
 FWDP(hipHostAlloc)
 FWDP(hipImportExternalMemory)
 FWDP(hipImportExternalSemaphore)
@@ -1103,8 +1104,8 @@ FWDP(hipTexRefSetAddress2D)
 FWDP(hipTexRefSetBorderColor)
 FWDP(hipTexRefSetMaxAnisotropy)
 FWDP(hipTexRefSetMipmapFilterMode)
-FWDP(hipTexRefSetMipmapLevelBias)
-FWDP(hipTexRefSetMipmapLevelClamp)
+/* FWDP(hipTexRefSetMipmapLevelBias): float per valore, prototipo esplicito in registrazione.inc */
+/* FWDP(hipTexRefSetMipmapLevelClamp): float per valore, prototipo esplicito in registrazione.inc */
 FWDP(hipTexRefSetMipmappedArray)
 FWDP(hipUnbindTexture)
 FWDP(hipUserObjectCreate)
@@ -1218,9 +1219,9 @@ __declspec(dllexport) int hipMemcpyHtoAAsync(void* dst_array, size_t offset,
 
 /* varianti di struct delle versioni successive (servirebbe il layout esatto
    della struct della versione chiamante: inventarlo corromperebbe la memoria) */
-NONSUP(hipChooseDeviceR0000)
-NONSUP(hipChooseDeviceR0600)
-NONSUP(hipGetDevicePropertiesR0000)
+/* hipChooseDeviceR0000: implementata in api7.inc */
+/* hipChooseDeviceR0600: implementata in api7.inc */
+/* hipGetDevicePropertiesR0000: implementata in api7.inc */
 /* nodi grafo generici: richiedono hipGraphNodeParams, struct non nota alla 5.7 */
 NONSUP(hipGraphAddNode)
 NONSUP(hipGraphNodeSetParams)
@@ -1256,9 +1257,9 @@ NONSUP(hipMemcpyAtoA)
 NONSUP(hipMemcpyAtoD)
 NONSUP(hipMemcpyDtoA)
 /* varie */
-NONSUP(hipGetFuncBySymbol)
+/* hipGetFuncBySymbol: implementata in api7.inc */
 NONSUP(hipExternalMemoryGetMappedMipmappedArray)
-NONSUP(hipDeviceGetTexture1DLinearMaxWidth)
+/* hipDeviceGetTexture1DLinearMaxWidth: implementata in api7.inc */
 
 
 __declspec(dllexport) unsigned int marconi_57exp_get_version(void) { return 51000; }
