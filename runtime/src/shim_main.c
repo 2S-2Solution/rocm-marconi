@@ -645,7 +645,7 @@ FWD9(hipExtModuleLaunchKernel)
  * Fix WinError 127 standalone ctypes load MIOpen.dll. */
 FWD9(hipMemPtrGetInfo)
 FWD9(hipMemcpyWithStream)
-FWD9(hipModuleLaunchCooperativeKernel)
+/* FWD9(hipModuleLaunchCooperativeKernel): vedi registrazione.inc */
 
 /* === VEGA-PATCH 2026-06-28 sprint-orch v2 shim-N ===
  * Agent 4 cross-reference: forwarder addizionali per coverage CU mask + graph v2.
@@ -811,8 +811,10 @@ __declspec(dllexport) int hipGetDevicePropertiesR0600(hipDeviceProp_R0600* prop_
     prop_R0600->singleToDoublePrecisionPerfRatio = 8;
     prop_R0600->pageableMemoryAccess = 0;
     prop_R0600->concurrentManagedAccess = 0;
-    prop_R0600->cooperativeLaunch = 1;
-    prop_R0600->cooperativeMultiDeviceLaunch = 1;
+    /* Il driver risponde 0 (hipDeviceGetAttribute) e rifiuta i lanci cooperativi con 719 anche con codice
+     * compilato con HIP 5.7: dichiararli supportati farebbe scegliere ai programmi una via che fallisce. */
+    prop_R0600->cooperativeLaunch = 0;
+    prop_R0600->cooperativeMultiDeviceLaunch = 0;
     prop_R0600->sharedMemPerBlockOptin = 65536;
     prop_R0600->maxBlocksPerMultiProcessor = 32;
     prop_R0600->hostRegisterSupported = 1;
@@ -887,7 +889,7 @@ FWDP(hipDrvGetErrorString)
 /* FWDP(hipDrvMemcpy3DAsync): tradotta, vedi abi57.inc */
 FWDP(hipEventRecord_spt)
 FWDP(hipExtGetLinkTypeAndHopCount)
-FWDP(hipExtLaunchKernel)
+/* FWDP(hipExtLaunchKernel): vedi registrazione.inc */
 FWDP(hipExtLaunchMultiKernelMultiDevice)
 FWDP(hipExtMallocWithFlags)
 FWDP(hipExtStreamGetCUMask)
@@ -979,7 +981,7 @@ FWDP(hipIpcOpenEventHandle)
 FWDP(hipIpcOpenMemHandle)
 FWDP(hipKernelNameRef)
 FWDP(hipLaunchByPtr)
-FWDP(hipLaunchCooperativeKernel)
+/* FWDP(hipLaunchCooperativeKernel): vedi registrazione.inc */
 FWDP(hipLaunchCooperativeKernelMultiDevice)
 FWDP(hipLaunchCooperativeKernel_spt)
 FWDP(hipLaunchHostFunc)

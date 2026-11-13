@@ -310,28 +310,44 @@ static void reg_associa(void* f, void* modulo, const char* nome) {
 typedef int (*reg_f_lancio_mod)(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx,
                                 unsigned int by, unsigned int bz, unsigned int shm, void* stream, void** arg, void** extra);
 
-/* hipModuleLaunchKernel della 5.7, con l'array degli argomenti completato se il kernel lo richiede. */
-static int reg_lancia(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx, unsigned int by,
-                      unsigned int bz, unsigned int shm, void* stream, void** arg, void** extra) {
+typedef int (*reg_f_lancio_coop)(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx,
+                                 unsigned int by, unsigned int bz, unsigned int shm, void* stream, void** arg);
+
+/* hipModuleLaunchKernel (o hipModuleLaunchCooperativeKernel, coop = 1) della 5.7, con l'array degli
+ * argomenti completato se il kernel lo richiede. */
+static int reg_lancia_x(int coop, void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx,
+                        unsigned int by, unsigned int bz, unsigned int shm, void* stream, void** arg, void** extra) {
     static reg_f_lancio_mod lancio = NULL;
+    static reg_f_lancio_coop lancio_coop = NULL;
     reg_fun_info* fi;
-    if (!lancio) { lancio = (reg_f_lancio_mod)abi57_reale("hipModuleLaunchKernel"); if (!lancio) return hipErrorNotSupported; }
+    void* locale[64];
+    void** completo = arg;
+    unsigned int lds = shm;
+    int rc;
+    if (coop) {
+        if (!lancio_coop) { lancio_coop = (reg_f_lancio_coop)abi57_reale("hipModuleLaunchCooperativeKernel"); if (!lancio_coop) return hipErrorNotSupported; }
+    } else {
+        if (!lancio) { lancio = (reg_f_lancio_mod)abi57_reale("hipModuleLaunchKernel"); if (!lancio) return hipErrorNotSupported; }
+    }
     fi = arg && reg_fun_infos.n ? (reg_fun_info*)reg_trova(&reg_fun_infos, f) : NULL;
     if (fi) {
-        void* locale[64];
-        void** completo = fi->info->n <= 64 ? locale : (void**)malloc(sizeof(void*) * (size_t)fi->info->n);
-        unsigned int lds = shm;
-        int a, i = 0, j = 0, rc;
+        int a, i = 0, j = 0;
+        completo = fi->info->n <= 64 ? locale : (void**)malloc(sizeof(void*) * (size_t)fi->info->n);
         if (!completo) return hipErrorOutOfMemory;
         for (a = 0; a < fi->info->n; a++) {
             if (fi->info->tipi[a] == 'e') completo[j++] = arg[i++];
             else if (fi->info->tipi[a] == 'l') completo[j++] = &lds;
         }
-        rc = lancio(f, gx, gy, gz, bx, by, bz, shm, stream, completo, extra);
-        if (completo != locale) free(completo);
-        return rc;
     }
-    return lancio(f, gx, gy, gz, bx, by, bz, shm, stream, arg, extra);
+    rc = coop ? lancio_coop(f, gx, gy, gz, bx, by, bz, shm, stream, completo)
+              : lancio(f, gx, gy, gz, bx, by, bz, shm, stream, completo, extra);
+    if (completo != arg && completo != locale) free(completo);
+    return rc;
+}
+
+static int reg_lancia(void* f, unsigned int gx, unsigned int gy, unsigned int gz, unsigned int bx, unsigned int by,
+                      unsigned int bz, unsigned int shm, void* stream, void** arg, void** extra) {
+    return reg_lancia_x(0, f, gx, gy, gz, bx, by, bz, shm, stream, arg, extra);
 }
 
 /* ---- bundle compressi (CCOB) ----
@@ -637,6 +653,48 @@ __declspec(dllexport) int hipModuleLaunchKernel(void* f, unsigned int gx, unsign
                                                 unsigned int bx, unsigned int by, unsigned int bz, unsigned int shm,
                                                 void* stream, void** arg, void** extra) {
     return reg_lancia(f, gx, gy, gz, bx, by, bz, shm, stream, arg, extra);
+}
+
+__declspec(dllexport) int hipModuleLaunchCooperativeKernel(void* f, unsigned int gx, unsigned int gy, unsigned int gz,
+                                                           unsigned int bx, unsigned int by, unsigned int bz,
+                                                           unsigned int shm, void* stream, void** arg) {
+    return reg_lancia_x(1, f, gx, gy, gz, bx, by, bz, shm, stream, arg, NULL);
+}
+
+/* hipExtLaunchKernel: come hipLaunchKernel, con eventi facoltativi registrati prima e dopo sullo stesso
+ * stream. I flag (hipExtAnyOrderLaunch) non hanno effetto con un solo motore di calcolo. */
+typedef int (*reg_f_extlancio)(const void* host, reg_dim3 g, reg_dim3 b, void** arg, size_t shm, void* stream,
+                               void* ev0, void* ev1, int flag);
+typedef int (*reg_f_evrec)(void* ev, void* stream);
+__declspec(dllexport) int hipExtLaunchKernel(const void* host, reg_dim3 griglia, reg_dim3 blocco, void** arg,
+                                             size_t shm, void* stream, void* ev0, void* ev1, int flag) {
+    void* f = NULL;
+    int rc = reg_funzione(host, &f);
+    if (rc < 0) {
+        ABI57_REALE(reale, reg_f_extlancio, "hipExtLaunchKernel");
+        return reale(host, griglia, blocco, arg, shm, stream, ev0, ev1, flag);
+    }
+    if (rc != hipSuccess) return reg_errore(rc);
+    {
+        ABI57_REALE(registra, reg_f_evrec, "hipEventRecord");
+        if (ev0 && (rc = registra(ev0, stream)) != hipSuccess) return reg_errore(rc);
+        rc = reg_lancia(f, griglia.x, griglia.y, griglia.z, blocco.x, blocco.y, blocco.z, (unsigned int)shm, stream, arg, NULL);
+        if (rc == hipSuccess && ev1) rc = registra(ev1, stream);
+    }
+    return reg_errore(rc);
+}
+
+typedef int (*reg_f_cooplancio)(const void* host, reg_dim3 g, reg_dim3 b, void** arg, unsigned int shm, void* stream);
+__declspec(dllexport) int hipLaunchCooperativeKernel(const void* host, reg_dim3 griglia, reg_dim3 blocco, void** arg,
+                                                     unsigned int shm, void* stream) {
+    void* f = NULL;
+    int rc = reg_funzione(host, &f);
+    if (rc < 0) {
+        ABI57_REALE(reale, reg_f_cooplancio, "hipLaunchCooperativeKernel");
+        return reale(host, griglia, blocco, arg, shm, stream);
+    }
+    if (rc != hipSuccess) return reg_errore(rc);
+    return reg_errore(reg_lancia_x(1, f, griglia.x, griglia.y, griglia.z, blocco.x, blocco.y, blocco.z, shm, stream, arg, NULL));
 }
 
 /* hipGetLastError e simili: all'errore della runtime 5.7 si aggiunge quello dei lanci falliti dentro lo

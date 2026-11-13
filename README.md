@@ -46,10 +46,10 @@ ogni file. MIOpen non fa parte del kit: è nel pacchetto
   non registrati, per esempio la memoria di un tensore CPU di PyTorch (`is_pinned()` terminava il
   processo). Lo shim chiede prima a `hipPointerGetAttributes`, che su quei puntatori risponde senza
   cadere, e per la memoria non HIP restituisce il tipo «non registrato».
-- **32 funzioni** sono implementate dentro lo shim (elenco in
+- **35 funzioni** sono implementate dentro lo shim (elenco in
   [FUNZIONI_473.md](docs/FUNZIONI_473.md), stato «OK propria»): fra queste `hipGetProcAddress`,
   `hipSetValidDevices`, `hipDrvLaunchKernelEx`, `hipGraphAddNode_v2`,
-  `hipGetDevicePropertiesR0600` e, dal 12 nov 2026, le 22 che servono al codice compilato con
+  `hipGetDevicePropertiesR0600` e, dal 12 nov 2026, le 25 che servono al codice compilato con
   ROCm 7 e 10 (vedi il punto seguente).
 - **Codice compilato con ROCm 7 e 10** (dal 12 nov 2026, `runtime/src/registrazione.inc`): la
   registrazione dei kernel incorporati (`__hipRegisterFatBinary` e simili, `<<<...>>>`) è tenuta
@@ -146,8 +146,8 @@ verificare l'impronta del file: una DLL in uso non si sovrascrive e l'errore è 
   12 nov 2026: un programma o una libreria compilati con HIP 7.x che lanciano kernel incorporati
   con `<<<...>>>` girano attraverso lo shim, comprese le wheel AMD di PyTorch 2.15 (kpack di ROCm 10,
   bundle compressi). Dettagli e limiti in [FUNZIONI_473.md](docs/FUNZIONI_473.md#codice-compilato-con-rocm-7-e-10-12-nov-2026):
-  bundle compressi con zlib non supportati; `hipExtLaunchKernel` e `hipLaunchCooperativeKernel`
-  per puntatore host non conoscono i kernel registrati dallo shim.
+  bundle compressi con zlib non supportati; i lanci cooperativi li rifiuta il driver stesso (719,
+  anche con codice compilato con HIP 5.7), e lo shim dichiara `cooperativeLaunch = 0` come il driver.
 - Nella libreria rocBLAS del kit i kernel per gfx900 (Vega 10) sono code object **v6**, che il
   driver Adrenalin non carica (lo mostra `strumenti/code_object_tensile.py --arch gfx900`): su
   una Vega 10 rocBLAS del kit non funzionerebbe. Quelli per gfx906 sono v4 e v5.
@@ -205,7 +205,7 @@ weight-gradient defect: set `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` and
 
 **Contents:** the `amdhip64_7_shim.dll` shim (484 exports: 474 `hip*` APIs, 6 internal
 `__hip*` compiler entry points and 4 diagnostic `marconi_57exp_*` functions; 428/428 runtime
-5.7 functions forwarded, 469/469 of the ROCm 6.1–7.1 API union exposed; 32 implemented in the
+5.7 functions forwarded, 469/469 of the ROCm 6.1–7.1 API union exposed; 35 implemented in the
 shim, 35 returning an explicit `hipErrorNotSupported`, plus a null-stream bridge for
 `hipStreamWaitEvent`). `hipGetDevicePropertiesR0600` returns fixed Radeon VII values
 (including compute capability 7.0) for any device, without querying the driver. Also:
@@ -224,8 +224,8 @@ sets the user environment, runs a GPU check).
 (`src\zstd`, BSD). Use `/O2`: clang-cl silently drops `-O3`.
 
 **Known limits:** 35 functions return 801; zlib-compressed bundles are not supported (zstd
-only); `hipExtLaunchKernel` and `hipLaunchCooperativeKernel` by host pointer do not see kernels
-registered by the shim; the kit's rocBLAS kernels for gfx900 (Vega 10) are
+only); the driver rejects cooperative launches (719, also with code built with HIP 5.7), and the
+shim reports `cooperativeLaunch = 0` like the driver; the kit's rocBLAS kernels for gfx900 (Vega 10) are
 code object v6, which the Adrenalin driver does not load (`strumenti/code_object_tensile.py`); forwarders assume integer-only arguments; one
 compute engine at a time under WDDM; a native HIP runtime for gfx906 cannot be built
 because the Windows PAL layer no longer lists GFX9 devices; the tools in `strumenti/` find

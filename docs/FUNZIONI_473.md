@@ -105,7 +105,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 95 | `hipEventSynchronize` | OK | inoltrata alla runtime v5.7 |
 | 96 | `hipExtGetLastError` | **OK propria** | come hipGetLastError (la 5.7 non la ha) |
 | 97 | `hipExtGetLinkTypeAndHopCount` | OK | inoltrata alla runtime v5.7 |
-| 98 | `hipExtLaunchKernel` | OK | inoltrata alla runtime v5.7 |
+| 98 | `hipExtLaunchKernel` | **OK propria** | kernel registrati dallo shim: eventi registrati prima e dopo sullo stesso stream, lancio con hipModuleLaunchKernel; gli altri inoltrati |
 | 99 | `hipExtLaunchMultiKernelMultiDevice` | OK | inoltrata alla runtime v5.7 |
 | 100 | `hipExtMallocWithFlags` | OK | inoltrata alla runtime v5.7 |
 | 101 | `hipExtModuleLaunchKernel` | OK | inoltrata alla runtime v5.7 |
@@ -258,7 +258,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 248 | `hipIpcOpenMemHandle` | OK | inoltrata alla runtime v5.7 |
 | 249 | `hipKernelNameRef` | OK | inoltrata alla runtime v5.7 |
 | 250 | `hipLaunchByPtr` | OK | inoltrata alla runtime v5.7 |
-| 251 | `hipLaunchCooperativeKernel` | OK | inoltrata alla runtime v5.7 |
+| 251 | `hipLaunchCooperativeKernel` | **OK propria** | kernel registrati dallo shim: hipModuleLaunchCooperativeKernel; il driver rifiuta comunque i lanci cooperativi (719, anche con codice 5.7) |
 | 252 | `hipLaunchCooperativeKernelMultiDevice` | OK | inoltrata alla runtime v5.7 |
 | 253 | `hipLaunchCooperativeKernel_spt` | OK | inoltrata alla runtime v5.7 |
 | 254 | `hipLaunchHostFunc` | OK | inoltrata alla runtime v5.7 |
@@ -383,7 +383,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 373 | `hipModuleGetFunction` | **OK propria** | inoltrata; ricorda i kernel con hidden_dynamic_lds_size |
 | 374 | `hipModuleGetGlobal` | OK | inoltrata alla runtime v5.7 |
 | 375 | `hipModuleGetTexRef` | OK | inoltrata alla runtime v5.7 |
-| 376 | `hipModuleLaunchCooperativeKernel` | OK | inoltrata alla runtime v5.7 |
+| 376 | `hipModuleLaunchCooperativeKernel` | **OK propria** | inoltrata, con kernelParams completato come hipModuleLaunchKernel; il driver risponde 719 |
 | 377 | `hipModuleLaunchCooperativeKernelMultiDevice` | OK | inoltrata alla runtime v5.7 |
 | 378 | `hipModuleLaunchKernel` | **OK propria** | inoltrata; per i kernel con hidden_dynamic_lds_size completa kernelParams |
 | 379 | `hipModuleLaunchKernelExt` | OK | inoltrata alla runtime v5.7 |
@@ -485,9 +485,9 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 
 ## Riepilogo
 
-- **OK (inoltrate)**: 397
+- **OK (inoltrate)**: 394
 - **OK tradotte**: 10 (inoltrate traducendo l'ABI, vedi sotto)
-- **OK propria**: 32
+- **OK propria**: 35
 - **NO (esportate, non supportate)**: 35
 
 ## Traduzione ABI 5.7 ↔ 7.x (12 nov 2026)
@@ -550,9 +550,10 @@ come la MIOpen non corretta. Con `MIOPEN_DEBUG_CONV_DIRECT_ASM_WRW3X3=0` e
   Release) data per riuscita, `hipGetDevice`/`hipSetDevice` con l'ultimo dispositivo, il resto
   `hipErrorDeinitialized`.
 
-Limiti: bundle compressi con zlib non supportati (solo zstd); `hipExtLaunchKernel` e
-`hipLaunchCooperativeKernel` per puntatore host restano inoltrati alla 5.7 (non conoscono i kernel
-registrati dallo shim); dei tipi di argomento nascosti posteriori alla 5.7 è gestito solo
+Limiti: bundle compressi con zlib non supportati (solo zstd); i lanci cooperativi (`hipLaunchCooperativeKernel`,
+`hipModuleLaunchCooperativeKernel`) il driver li rifiuta con 719 anche con codice compilato con HIP 5.7:
+lo shim li inoltra correttamente, e dal 13 nov 2026 `hipGetDevicePropertiesR0600` dichiara
+`cooperativeLaunch = 0` come il driver (prima 1); dei tipi di argomento nascosti posteriori alla 5.7 è gestito solo
 `hidden_dynamic_lds_size`, l'unico trovato.
 
 ## Cosa servirebbe per attivare le NO
