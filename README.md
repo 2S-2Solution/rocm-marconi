@@ -71,7 +71,7 @@ ogni file. MIOpen non fa parte del kit: è nel pacchetto
   i valori sarebbero sbagliati: è uno dei motivi per cui il kit è dichiarato solo per la
   Radeon VII.
   `hipGetDeviceProperties` (senza suffisso) invece è inoltrata e riporta i valori veri.
-- **35 funzioni** che richiederebbero strutture assenti in 5.7 sono esportate ma rispondono
+- **23 funzioni** che richiederebbero strutture assenti in 5.7 sono esportate ma rispondono
   **`hipErrorNotSupported` (801)** in modo esplicito: meglio un errore dichiarato che un
   simbolo mancante o un inoltro che corrompe la memoria.
 - **Ponte sullo stream nullo** (ottobre 2026): la runtime 5.7 restituisce
@@ -144,9 +144,12 @@ verificare l'impronta del file: una DLL in uso non si sovrascrive e l'errore è 
 
 ## Limiti noti
 
-- Le 35 funzioni elencate come **NO** in [FUNZIONI_473.md](docs/FUNZIONI_473.md)
-  (nodi grafo generici, semafori esterni nei grafi, varianti di strutture `R0000`/`R0600`…)
-  rispondono 801.
+- Le 23 funzioni elencate come **NO** in [FUNZIONI_473.md](docs/FUNZIONI_473.md) rispondono 801:
+  semafori esterni e batch mem-op come nodi di grafo, le API driver dei grafi che usano
+  `HIP_MEMCPY3D`, `hipGraphInstantiateWithParams`, `hipGraphExecGetFlags`,
+  `hipStreamBeginCaptureToGraph` e `hipExternalMemoryGetMappedMipmappedArray`. Altre funzioni
+  rispondono 801 solo in casi particolari: tipi di nodo di grafo che la 5.7 non ha, risorse
+  "green" diverse dalle SM.
 - La registrazione dei kernel (`__hipRegisterFatBinary` e simili) è implementata nello shim dal
   12 nov 2026: un programma o una libreria compilati con HIP 7.x che lanciano kernel incorporati
   con `<<<...>>>` girano attraverso lo shim, comprese le wheel AMD di PyTorch 2.15 (kpack di ROCm 10,
@@ -158,8 +161,11 @@ verificare l'impronta del file: una DLL in uso non si sovrascrive e l'errore è 
   una Vega 10 rocBLAS del kit non funzionerebbe. Quelli per gfx906 sono v4 e v5.
 - Le macro di inoltro passano 9 argomenti interi: regge per tutte le API HIP attuali, ma non
   per una funzione che prenda `float`/`double` per valore.
-- Un solo motore di calcolo per volta: Windows (WDDM) serializza le code di calcolo della
-  scheda.
+- Più stream non danno velocità: nelle nostre prove (21 coppie di stream, con e senza
+  `hipExtAnyOrderLaunch`) due kernel su stream diversi non si sono mai sovrapposti, 2,00x il tempo
+  di uno. L'ordine fra stream però **non è garantito**: la RNN multi-stream di MIOpen aveva una
+  corsa vera fra due stream senza eventi. Le dipendenze fra stream vanno dichiarate con gli
+  eventi, come su Linux.
 - La via «costruire la runtime HIP nuova per gfx906» è chiusa: lo strato PAL del driver
   Windows non elenca più alcuna GPU GFX9.
 - Lo shim carica la runtime del driver da `C:\Windows\System32\amdhip64.dll` (percorso
@@ -230,11 +236,13 @@ sets the user environment, runs a GPU check).
 `clang-cl.exe`); it compiles `src\shim_main.c` and the bundled zstd 1.5.7 decompressor
 (`src\zstd`, BSD). Use `/O2`: clang-cl silently drops `-O3`.
 
-**Known limits:** 35 functions return 801; zlib-compressed bundles are not supported (zstd
+**Known limits:** 23 functions return 801 (external-semaphore and batch mem-op graph nodes,
+the driver graph APIs taking `HIP_MEMCPY3D`, and a few others listed in `docs/FUNZIONI_473.md`); zlib-compressed bundles are not supported (zstd
 only); the driver rejects cooperative launches (719, also with code built with HIP 5.7), and the
 shim reports `cooperativeLaunch = 0` like the driver; the kit's rocBLAS kernels for gfx900 (Vega 10) are
-code object v6, which the Adrenalin driver does not load (`strumenti/code_object_tensile.py`); forwarders assume integer-only arguments; one
-compute engine at a time under WDDM; a native HIP runtime for gfx906 cannot be built
+code object v6, which the Adrenalin driver does not load (`strumenti/code_object_tensile.py`); forwarders assume integer-only arguments; multiple
+streams give no speed-up (in our tests kernels on different streams never overlapped), but
+ordering across streams is not guaranteed, so cross-stream dependencies still need events; a native HIP runtime for gfx906 cannot be built
 because the Windows PAL layer no longer lists GFX9 devices; the tools in `strumenti/` find
 the kit via `MARCONI_ROOT`.
 

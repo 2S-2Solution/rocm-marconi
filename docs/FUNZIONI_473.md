@@ -20,8 +20,8 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 10 | `hipBindTextureToArray` | OK | inoltrata alla runtime v5.7 |
 | 11 | `hipBindTextureToMipmappedArray` | OK | inoltrata alla runtime v5.7 |
 | 12 | `hipChooseDevice` | OK | inoltrata alla runtime v5.7 |
-| 13 | `hipChooseDeviceR0000` | **NO** | servirebbe il layout esatto della struct della versione chiamante: inventarlo corromperebbe la memoria |
-| 14 | `hipChooseDeviceR0600` | **NO** | servirebbe il layout esatto della struct della versione chiamante: inventarlo corromperebbe la memoria |
+| 13 | `hipChooseDeviceR0000` | **OK propria** | implementata nello shim (`api7.inc`, 13 nov 2026): la struct R0000 coincide con quella della 5.7 (792 B, verificato con clang) |
+| 14 | `hipChooseDeviceR0600` | **OK propria** | implementata nello shim (`api7.inc`, 13 nov 2026), sopra `hipGetDevicePropertiesR0600` |
 | 15 | `hipConfigureCall` | OK | inoltrata alla runtime v5.7 |
 | 16 | `hipCreateChannelDesc` | OK | inoltrata alla runtime v5.7 |
 | 17 | `hipCreateSurfaceObject` | OK | inoltrata alla runtime v5.7 |
@@ -63,7 +63,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 53 | `hipDeviceGetPCIBusId` | OK | inoltrata alla runtime v5.7 |
 | 54 | `hipDeviceGetSharedMemConfig` | OK | inoltrata alla runtime v5.7 |
 | 55 | `hipDeviceGetStreamPriorityRange` | OK | inoltrata alla runtime v5.7 |
-| 56 | `hipDeviceGetTexture1DLinearMaxWidth` | **NO** | primitiva assente nella runtime 5.7 |
+| 56 | `hipDeviceGetTexture1DLinearMaxWidth` | **OK propria** | implementata nello shim (`api7.inc`, 13 nov 2026) |
 | 57 | `hipDeviceGetUuid` | OK | inoltrata alla runtime v5.7 |
 | 58 | `hipDeviceGraphMemTrim` | OK | inoltrata alla runtime v5.7 |
 | 59 | `hipDevicePrimaryCtxGetState` | OK | inoltrata alla runtime v5.7 |
@@ -83,7 +83,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 73 | `hipDrvGetErrorName` | OK | inoltrata alla runtime v5.7 |
 | 74 | `hipDrvGetErrorString` | OK | inoltrata alla runtime v5.7 |
 | 75 | `hipDrvGraphAddMemFreeNode` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D, struct non definita nella 5.7 |
-| 76 | `hipDrvGraphAddMemcpyNode` | **OK propria** | implementazione custom nello shim |
+| 76 | `hipDrvGraphAddMemcpyNode` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D; lo shim restituisce 801 in modo esplicito |
 | 77 | `hipDrvGraphAddMemsetNode` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D, struct non definita nella 5.7 |
 | 78 | `hipDrvGraphExecMemcpyNodeSetParams` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D, struct non definita nella 5.7 |
 | 79 | `hipDrvGraphExecMemsetNodeSetParams` | **NO** | API driver dei grafi: usano HIP_MEMCPY3D, struct non definita nella 5.7 |
@@ -130,11 +130,11 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 120 | `hipGetDeviceCount` | OK | inoltrata alla runtime v5.7 |
 | 121 | `hipGetDeviceFlags` | OK | inoltrata alla runtime v5.7 |
 | 122 | `hipGetDeviceProperties` | OK | inoltrata alla runtime v5.7 |
-| 123 | `hipGetDevicePropertiesR0000` | **NO** | servirebbe il layout esatto della struct della versione chiamante: inventarlo corromperebbe la memoria |
+| 123 | `hipGetDevicePropertiesR0000` | **OK propria** | implementata nello shim (`api7.inc`, 13 nov 2026): la struct R0000 coincide con quella della 5.7 (792 B, verificato con clang) |
 | 124 | `hipGetDevicePropertiesR0600` | **OK propria** | struttura R0600 (1640 B) riempita con valori FISSI della Radeon VII (nome, gfx906:sramecc+:xnack-, 16 GB, 60 CU, compute capability 7.0), senza chiamare il driver e per qualunque indice di dispositivo |
 | 125 | `hipGetErrorName` | OK | inoltrata alla runtime v5.7 |
 | 126 | `hipGetErrorString` | OK | inoltrata alla runtime v5.7 |
-| 127 | `hipGetFuncBySymbol` | **NO** | primitiva assente nella runtime 5.7 |
+| 127 | `hipGetFuncBySymbol` | **OK propria** | implementata nello shim (`api7.inc`, 13 nov 2026), sulla registrazione dei kernel |
 | 128 | `hipGetLastError` | **OK propria** | errore della 5.7 piu' quello dei lanci falliti dentro lo shim |
 | 129 | `hipGetMipmappedArrayLevel` | OK | inoltrata alla runtime v5.7 |
 | 130 | `hipGetProcAddress` | **OK propria** | implementata: cerca nello shim, poi nella runtime |
@@ -163,7 +163,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 153 | `hipGraphAddMemcpyNodeFromSymbol` | OK | inoltrata alla runtime v5.7 |
 | 154 | `hipGraphAddMemcpyNodeToSymbol` | OK | inoltrata alla runtime v5.7 |
 | 155 | `hipGraphAddMemsetNode` | OK | inoltrata alla runtime v5.7 |
-| 156 | `hipGraphAddNode` | **NO** | la runtime 5.7 non ha i nodi grafo generici ne' hipGraphNodeParams |
+| 156 | `hipGraphAddNode` | **OK propria** | implementata nello shim (`api7_graph.inc`, 13 nov 2026): nodo generico tradotto nel nodo tipizzato 5.7 |
 | 157 | `hipGraphAddNode_v2` | **OK propria** | implementazione custom nello shim |
 | 158 | `hipGraphBatchMemOpNodeGetParams` | **NO** | la 5.7 non ha la primitiva batch mem-op |
 | 159 | `hipGraphBatchMemOpNodeSetParams` | **NO** | la 5.7 non ha la primitiva batch mem-op |
@@ -192,7 +192,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 182 | `hipGraphExecMemcpyNodeSetParamsFromSymbol` | OK | inoltrata alla runtime v5.7 |
 | 183 | `hipGraphExecMemcpyNodeSetParamsToSymbol` | OK | inoltrata alla runtime v5.7 |
 | 184 | `hipGraphExecMemsetNodeSetParams` | OK | inoltrata alla runtime v5.7 |
-| 185 | `hipGraphExecNodeSetParams` | **NO** | la runtime 5.7 non ha i nodi grafo generici ne' hipGraphNodeParams |
+| 185 | `hipGraphExecNodeSetParams` | **OK propria** | implementata nello shim (`api7_graph.inc`, 13 nov 2026): nodo generico tradotto nel nodo tipizzato 5.7 |
 | 186 | `hipGraphExecUpdate` | OK | inoltrata alla runtime v5.7 |
 | 187 | `hipGraphExternalSemaphoresSignalNodeGetParams` | **NO** | la 5.7 non espone i semafori esterni COME NODI di grafo |
 | 188 | `hipGraphExternalSemaphoresSignalNodeSetParams` | **NO** | la 5.7 non espone i semafori esterni COME NODI di grafo |
@@ -228,7 +228,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 218 | `hipGraphNodeGetEnabled` | OK | inoltrata alla runtime v5.7 |
 | 219 | `hipGraphNodeGetType` | OK | inoltrata alla runtime v5.7 |
 | 220 | `hipGraphNodeSetEnabled` | OK | inoltrata alla runtime v5.7 |
-| 221 | `hipGraphNodeSetParams` | **NO** | la runtime 5.7 non ha i nodi grafo generici ne' hipGraphNodeParams |
+| 221 | `hipGraphNodeSetParams` | **OK propria** | implementata nello shim (`api7_graph.inc`, 13 nov 2026): nodo generico tradotto nel nodo tipizzato 5.7 |
 | 222 | `hipGraphReleaseUserObject` | OK | inoltrata alla runtime v5.7 |
 | 223 | `hipGraphRemoveDependencies` | OK | inoltrata alla runtime v5.7 |
 | 224 | `hipGraphRetainUserObject` | OK | inoltrata alla runtime v5.7 |
@@ -311,7 +311,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 301 | `hipMemUnmap` | OK | inoltrata alla runtime v5.7 |
 | 302 | `hipMemcpy` | OK | inoltrata alla runtime v5.7 |
 | 303 | `hipMemcpy2D` | OK | inoltrata alla runtime v5.7 |
-| 304 | `hipMemcpy2DArrayToArray` | **NO** | servono i descrittori di array che la 5.7 non espone |
+| 304 | `hipMemcpy2DArrayToArray` | **OK propria** | implementata nello shim (`api7_mem.inc`, 13 nov 2026) con un buffer host |
 | 305 | `hipMemcpy2DAsync` | OK | inoltrata alla runtime v5.7 |
 | 306 | `hipMemcpy2DAsync_spt` | OK | inoltrata alla runtime v5.7 |
 | 307 | `hipMemcpy2DFromArray` | OK | inoltrata alla runtime v5.7 |
@@ -329,11 +329,11 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 319 | `hipMemcpy3D_spt` | OK | inoltrata alla runtime v5.7 |
 | 320 | `hipMemcpyAsync` | OK | inoltrata alla runtime v5.7 |
 | 321 | `hipMemcpyAsync_spt` | OK | inoltrata alla runtime v5.7 |
-| 322 | `hipMemcpyAtoA` | **NO** | servono i descrittori di array che la 5.7 non espone |
-| 323 | `hipMemcpyAtoD` | **NO** | servono i descrittori di array che la 5.7 non espone |
+| 322 | `hipMemcpyAtoA` | **OK propria** | implementata nello shim (`api7_mem.inc`, 13 nov 2026) con un buffer host |
+| 323 | `hipMemcpyAtoD` | **OK propria** | implementata nello shim (`api7_mem.inc`, 13 nov 2026) con un buffer host |
 | 324 | `hipMemcpyAtoH` | OK | inoltrata alla runtime v5.7 |
 | 325 | `hipMemcpyAtoHAsync` | **OK propria** | implementata: delega alla sincrona hipMemcpyAtoH |
-| 326 | `hipMemcpyDtoA` | **NO** | servono i descrittori di array che la 5.7 non espone |
+| 326 | `hipMemcpyDtoA` | **OK propria** | implementata nello shim (`api7_mem.inc`, 13 nov 2026) con un buffer host |
 | 327 | `hipMemcpyDtoD` | OK | inoltrata alla runtime v5.7 |
 | 328 | `hipMemcpyDtoDAsync` | OK | inoltrata alla runtime v5.7 |
 | 329 | `hipMemcpyDtoH` | OK | inoltrata alla runtime v5.7 |
@@ -413,7 +413,7 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 | 403 | `hipStreamAddCallback` | OK | inoltrata alla runtime v5.7 |
 | 404 | `hipStreamAddCallback_spt` | OK | inoltrata alla runtime v5.7 |
 | 405 | `hipStreamAttachMemAsync` | OK | inoltrata alla runtime v5.7 |
-| 406 | `hipStreamBatchMemOp` | **NO** | la 5.7 non ha la primitiva batch mem-op |
+| 406 | `hipStreamBatchMemOp` | **OK propria** | implementata nello shim (`api7_graph.inc`, 13 nov 2026): scritture con `hipMemsetD32Async`, attese vuote su stream in ordine |
 | 407 | `hipStreamBeginCapture` | OK | inoltrata alla runtime v5.7 |
 | 408 | `hipStreamBeginCaptureToGraph` | **NO** | la runtime 5.7 non ha i nodi grafo generici ne' hipGraphNodeParams |
 | 409 | `hipStreamBeginCapture_spt` | OK | inoltrata alla runtime v5.7 |
@@ -487,8 +487,8 @@ tipi cambiati fra 5.7 e 7.x (`runtime/src/abi57.inc`) · **NO** = esportata ma l
 
 - **OK (inoltrate)**: 394
 - **OK tradotte**: 10 (inoltrate traducendo l'ABI, vedi sotto)
-- **OK propria**: 35
-- **NO (esportate, non supportate)**: 35
+- **OK propria**: 47
+- **NO (esportate, non supportate)**: 23
 
 ## Traduzione ABI 5.7 ↔ 7.x (12 nov 2026)
 
@@ -539,8 +539,9 @@ completamento giusto di `hidden_dynamic_lds_size`.
 statiche non vengono allocate: il loro puntatore resta vuoto. Sono rare nel codice di calcolo.
 
 **Limiti noti (restano `hipErrorNotSupported`):** nodi di grafo avanzati (semafori esterni, batch-mem-op,
-API driver dei grafi, cattura verso grafo, istanziazione con parametri), `hipMemcpy3DBatchAsync` e mipmap
-da memoria esterna, perché la 5.7 non ha le primitive corrispondenti. Le operazioni di memoria sugli
+API driver dei grafi, cattura verso grafo, istanziazione con parametri) e mipmap da memoria esterna,
+perché la 5.7 non ha le primitive corrispondenti: sono le 23 **NO** della tabella. `hipMemcpy3DBatchAsync`
+non è esportata. Le operazioni di memoria sugli
 stream (`hipStreamWaitValue`) non sono supportate dal driver su gfx906/Windows: la scrittura usa
 `hipMemsetD32Async`, l'attesa di un valore è vuota su stream in ordine.
 
@@ -587,16 +588,19 @@ lo shim li inoltra correttamente, e dal 13 nov 2026 `hipGetDevicePropertiesR0600
 
 ## Cosa servirebbe per attivare le NO
 
-Tutte e 35 richiedono **primitive che la runtime v5.7 non espone**, non lavoro nostro.
+Il 13 novembre 2026 ne sono state implementate 13 sopra i mattoni della 5.7 (vedi sopra). Le 23 rimaste
+richiedono **primitive che la runtime v5.7 non espone**, non lavoro nostro.
 Le vie possibili, in ordine di costo:
 
 1. **Sorgenti ROCm 6.4 + suo interop PAL** (gfx906 e' ancora nella tabella PAL fino alla 6.4.4,
    sparisce nella 7.0.0): darebbe la runtime nativa con tutte le funzioni. Richiede un albero
    sorgenti che qui non c'e'. **E' l'unica via che le attiva davvero tutte.**
-2. **Reverse-engineering dei layout di struct** (`hipGraphNodeParams`, `HIP_MEMCPY3D`,
-   `hipDeviceProp` R0000): permetterebbe di implementare i dispatcher grafo e le copie array
-   sopra le primitive esistenti. Fattibile per ~10 delle 35, ma ogni struct sbagliata
-   corrompe memoria: serve validazione contro gli header ufficiali 6.4.
-3. **Le restanti ~25** (semafori esterni nei grafi, batch mem-op, API driver dei grafi)
-   richiedono primitive kernel-mode che il driver Adrenalin non espone: fuori portata
-   senza la via 1.
+2. **Layout delle struct verificati con clang** sugli header 5.7 e 7.16: è la via seguita il
+   13 nov 2026 per `hipGraphNodeParams` e `hipDeviceProp` R0000 (nodi di grafo generici, copie
+   fra array, R0000/R0600). Il layout di `HIP_MEMCPY3D` è noto dalla traduzione ABI, quindi le 6
+   API driver dei grafi potrebbero essere tradotte nei nodi tipizzati della 5.7: non è ancora
+   fatto. Ogni struct sbagliata corrompe la memoria, perciò ogni traduzione va confrontata con
+   gli header.
+3. **Le altre** (semafori esterni e batch mem-op come nodi di grafo, cattura verso grafo,
+   istanziazione con parametri, mipmap da memoria esterna) richiedono primitive che la runtime
+   del driver Adrenalin non espone: fuori portata senza la via 1.
